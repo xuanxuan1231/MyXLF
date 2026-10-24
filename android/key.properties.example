@@ -1,0 +1,8 @@
+# 复制为 android/key.properties 后填写，用于本地构建已签名的 Release 包。
+# 该文件已被 .gitignore 忽略，请勿提交真实密钥。
+#
+# storeFile 支持绝对路径，或相对于 android/ 目录的路径。
+storeFile=/absolute/path/to/upload-keystore.jks
+storePassword=your-store-password
+keyAlias=upload
+keyPassword=your-key-password
