@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart' show TextInput;
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
@@ -69,6 +70,8 @@ class _LoginScreenState extends State<LoginScreen> {
         lastLoginAt: DateTime.now().millisecondsSinceEpoch,
       );
       if (!mounted) return;
+      // 通知系统本次输入已完成，允许密码管理器（如 HyperOS 密码管家）弹出“保存密码”提示。
+      TextInput.finishAutofillContext();
       await enterShell(context, account, result);
     } catch (e) {
       if (!mounted) return;
@@ -85,70 +88,83 @@ class _LoginScreenState extends State<LoginScreen> {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('登录')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 8),
-            Center(
-              child: Image.asset(
-                Theme.of(context).brightness == Brightness.dark
-                    ? 'assets/images/logo_dark.png'
-                    : 'assets/images/logo_light.png',
-                width: 96,
-                height: 96,
-                semanticLabel: 'MyXLF',
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'MyXLF',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '学生成绩分析报告',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-            ),
-            const SizedBox(height: 32),
-            TextField(
-              controller: _usernameController,
-              decoration: const InputDecoration(
-                labelText: '用户名',
-                hintText: '学生姓名或手机号',
-                prefixIcon: Icon(Icons.person_outline),
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _passwordController,
-              obscureText: _obscure,
-              onSubmitted: (_) => _submit(),
-              decoration: InputDecoration(
-                labelText: '密码',
-                prefixIcon: const Icon(Icons.lock_outline),
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                  onPressed: () => setState(() => _obscure = !_obscure),
+      // AutofillGroup 是 Android / iOS 自动填充的前提，缺少它时系统不会把这两个输入框
+      // 视为同一组账号密码，也不会触发填充与保存提示。
+      body: AutofillGroup(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 8),
+              Center(
+                child: Image.asset(
+                  Theme.of(context).brightness == Brightness.dark
+                      ? 'assets/images/logo_dark.png'
+                      : 'assets/images/logo_light.png',
+                  width: 96,
+                  height: 96,
+                  semanticLabel: 'MyXLF',
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            M3EFilledButton(
-              onPressed: _submitting ? null : _submit,
-              size: M3EButtonSize.md,
-              child: _submitting
-                  ? const M3ECircularProgressIndicator(size: 20, strokeWidth: 2)
-                  : const Text('登录'),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                'MyXLF',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '学生成绩分析报告',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 32),
+              TextField(
+                controller: _usernameController,
+                autofillHints: const [AutofillHints.username],
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: '用户名',
+                  hintText: '学生姓名或手机号',
+                  prefixIcon: Icon(Icons.person_outline),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _passwordController,
+                obscureText: _obscure,
+                autofillHints: const [AutofillHints.password],
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _submit(),
+                decoration: InputDecoration(
+                  labelText: '密码',
+                  prefixIcon: const Icon(Icons.lock_outline),
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscure ? Icons.visibility_off : Icons.visibility,
+                    ),
+                    onPressed: () => setState(() => _obscure = !_obscure),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              M3EFilledButton(
+                onPressed: _submitting ? null : _submit,
+                size: M3EButtonSize.md,
+                child: _submitting
+                    ? const M3ECircularProgressIndicator(
+                        size: 20,
+                        strokeWidth: 2,
+                      )
+                    : const Text('登录'),
+              ),
+            ],
+          ),
         ),
       ),
     );
