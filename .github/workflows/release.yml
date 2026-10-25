@@ -325,6 +325,12 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+        with:
+          # git-cliff 需要完整的提交历史和标签来生成 Release Notes
+          fetch-depth: 0
+
       - name: 下载 Android 产物
         uses: actions/download-artifact@v8
         with:
@@ -337,40 +343,44 @@ jobs:
           name: ios-release
           path: dist
 
-      - name: 生成安装说明
+      - name: 准备版本标签
         env:
-          IOS_SIGNED: ${{ needs.build-ios.outputs.signed }}
-          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
-          {
-            echo "## 安装说明"
-            echo ""
-            echo "### Android"
-            echo ""
-            echo "- \`MyXLF-${VERSION}.apk\`：直接安装。"
-            echo ""
-            echo "### iOS"
-            echo ""
-            if [ "$IOS_SIGNED" = "true" ]; then
-              echo "- \`MyXLF-${VERSION}.ipa\`：已签名，可通过 Transporter 上传到 App Store Connect / TestFlight。"
-            else
-              echo "- \`MyXLF-${VERSION}-unsigned.ipa\`：**未签名**，不能直接安装。"
-              echo "- 请使用 AltStore、SideStore、Sideloadly 或 Xcode 用自己的 Apple ID 重新签名后安装。"
-              echo "- 免费 Apple ID 签名的应用通常 7 天后过期，需要重新签名；付费开发者账号签名为 1 年。"
-            fi
-            echo ""
-            echo "---"
-          } > release-notes.md
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "标签 $TAG 已存在"
+          else
+            # 手动触发时标签可能尚未创建，先在本地打标签，让 git-cliff 把本次提交识别为新版本
+            git tag "$TAG"
+            echo "已在本地创建标签 $TAG"
+          fi
+
+      - name: 生成 Release Notes
+        uses: orhun/git-cliff-action@v4
+        with:
+          version: v2.14.2
+          config: cliff.toml
+          args: --latest
+        env:
+          OUTPUT: release-notes.md
+
+      - name: 检查 Release Notes
+        run: |
+          set -euo pipefail
+          if [ ! -s release-notes.md ]; then
+            echo "本次发布没有可归入 Release Notes 的提交。" > release-notes.md
+          fi
+          cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
           cat release-notes.md
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: MyXLF v${{ needs.prepare.outputs.version }}
           body_path: release-notes.md
-          generate_release_notes: true
           prerelease: ${{ contains(needs.prepare.outputs.version, '-') }}
           files: dist/*
           fail_on_unmatched_files: true

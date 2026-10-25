@@ -46,7 +46,7 @@ fvm flutter test test/e2e_test.dart   # 手动运行端到端测试
 
 1. 运行静态分析和单元测试（Android 任务）。
 2. 构建 Release APK、AAB 和 IPA。
-3. 创建 GitHub Release（版本名取自标签去掉开头的 `v`），并附加以下文件：
+3. 创建 GitHub Release（版本名取自标签去掉开头的 `v`），Release Notes 由 [git-cliff](https://git-cliff.org/) 根据提交历史生成，并附加以下文件：
    - `MyXLF-<version>.apk`：可直接安装的通用 APK
    - `MyXLF-<version>.aab`：用于 Google Play 上架
    - `MyXLF-<version>.ipa`：已签名的 iOS 安装包（配置 iOS 签名时）
@@ -54,6 +54,19 @@ fvm flutter test test/e2e_test.dart   # 手动运行端到端测试
    - `SHA256SUMS-<version>-android.txt` / `SHA256SUMS-<version>-ios.txt`：校验文件
 
 也可以进入 **Actions → Release → Run workflow** 手动触发；版本号留空时使用 `pubspec.yaml` 中的版本。
+
+### Release Notes
+
+Release Notes 由 git-cliff 根据上一个版本标签到本次标签之间的提交生成，规则见 [`cliff.toml`](cliff.toml)：
+
+- 提交信息建议遵循 [Conventional Commits](https://www.conventionalcommits.org/)，如 `feat: 新增成绩对比`、`fix: 修复登录失败`。
+- `feat` / `fix` / `perf` / `refactor` / `docs` / `revert` 会分组展示，其余提交归入「其他改动」。
+- 本地预览：
+
+  ```bash
+  git cliff --latest                  # 最新版本的 Release Notes
+  git cliff --unreleased --tag v1.2.3 # 模拟下一个版本的 Release Notes
+  ```
 
 ### iOS 侧载
 

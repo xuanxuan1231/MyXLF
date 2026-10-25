@@ -1,0 +1,39 @@
+# git-cliff 配置：https://git-cliff.org/docs/configuration
+#
+# Release 工作流用它生成 GitHub Release Notes：
+#   git cliff --latest
+#
+# 本地预览最新版本的 Release Notes：
+#   git cliff --latest
+# 预览未发布提交（本地打 tag 前）：
+#   git cliff --unreleased --tag v1.2.3
+
+[changelog]
+# Release Notes 只有正文，版本号与日期由 Release 标题展示
+body = """{% for group_name in ["🚀 新功能", "🐛 问题修复", "⚡ 性能优化", "♻️ 代码重构", "📝 文档", "⏪ 回滚", "🔧 其他改动"] %}{% set group_commits = commits | filter(attribute="group", value=group_name) %}{% if group_commits | length > 0 %}### {{ group_name }}
+{% for commit in group_commits %}
+- {% if commit.scope %}**{{ commit.scope }}**：{% endif %}{{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/commit/{{ commit.id }})) - {{ commit.author.name }}{% endfor %}
+
+{% endif %}{% endfor %}{% if previous and previous.version %}**完整变更**：[{{ previous.version }}...{{ version }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/compare/{{ previous.version }}...{{ version }})
+{% endif %}"""
+trim = true
+
+[git]
+conventional_commits = true
+# 仓库中存在非约定式提交（如 fixes、ios），保留它们并归入「其他改动」
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = false
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "newest"
+commit_parsers = [
+  { message = "^feat", group = "🚀 新功能" },
+  { message = "^fix", group = "🐛 问题修复" },
+  { message = "^perf", group = "⚡ 性能优化" },
+  { message = "^refactor", group = "♻️ 代码重构" },
+  { message = "^docs", group = "📝 文档" },
+  { message = "^revert", group = "⏪ 回滚" },
+  { message = "^Merge", skip = true },
+  { message = ".*", group = "🔧 其他改动" },
+]
