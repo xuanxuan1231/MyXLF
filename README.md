@@ -2,6 +2,10 @@
 
 基于 Flutter 的成绩查询与分析客户端。
 
+## 安装
+
+从 [GitHub Releases](https://github.com/xuanxuan1231/MyXLF/releases/latest) 下载，或者通过 [蓝奏云 (密码 5cfc)](https://wwasj.lanzouu.com/b01i5y6dji) 下载。
+
 ## 本地开发
 
 项目使用 [FVM](https://fvm.app/) 固定 Flutter 版本（见 `.fvmrc`）：
