@@ -8,7 +8,7 @@ on:
     inputs:
       version:
         description: '版本号（如 1.2.3），留空则读取 pubspec.yaml'
-        required: false
+        required: true
         type: string
 
 permissions:
@@ -19,21 +19,64 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # 在仓库 Settings > Secrets and variables > Actions 中配置。
-  # 未配置时构建仍可完成，但会使用 debug 签名（不建议用于正式发布）。
+  # Android 签名（可选，未配置时回退 debug 签名）
   ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
   ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
   ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
   ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
+  # iOS 签名（可选；未配置时构建未签名 IPA，供用户自行侧载签名）
+  IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+  IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+  IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+  IOS_PROVISIONING_PROFILE_SPECIFIER: ${{ secrets.IOS_PROVISIONING_PROFILE_SPECIFIER }}
+  IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+
+  # 可选仓库变量：app-store（默认）/ ad-hoc / enterprise
+  IOS_EXPORT_METHOD: ${{ vars.IOS_EXPORT_METHOD || 'app-store' }}
+
 jobs:
-  build:
-    name: 构建 Android 安装包
+  prepare:
+    name: 解析版本
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 解析版本号
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REQUESTED_VERSION:-}" ]; then
+            version="$REQUESTED_VERSION"
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(sed -n 's/^version:[[:space:]]*\([^+[:space:]]*\).*/\1/p' pubspec.yaml | head -n1)"
+          fi
+          version="${version#v}"
+          if [ -z "$version" ]; then
+            echo "::error::无法确定版本号，请在手动触发时填写 version 或检查 pubspec.yaml"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "构建版本：MyXLF v$version" >> "$GITHUB_STEP_SUMMARY"
+
+  build-android:
+    name: 构建 Android 安装包
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      APP_VERSION: ${{ needs.prepare.outputs.version }}
 
     steps:
       - name: 检出代码
@@ -57,29 +100,6 @@ jobs:
           channel: stable
           cache: true
 
-      - name: 解析版本号
-        id: version
-        env:
-          REQUESTED_VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          if [ -n "${REQUESTED_VERSION:-}" ]; then
-            version="$REQUESTED_VERSION"
-          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(sed -n 's/^version:[[:space:]]*\([^+[:space:]]*\).*/\1/p' pubspec.yaml | head -n1)"
-          fi
-          version="${version#v}"
-          if [ -z "$version" ]; then
-            echo "::error::无法确定版本号，请在手动触发时填写 version 或检查 pubspec.yaml"
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
-          echo "构建版本：MyXLF v$version" >> "$GITHUB_STEP_SUMMARY"
-
       - name: 安装依赖
         run: flutter pub get --enforce-lockfile
 
@@ -101,7 +121,7 @@ jobs:
           keyPassword=$ANDROID_KEY_PASSWORD
           EOF
 
-      - name: 提示未配置签名
+      - name: 提示未配置 Android 签名
         if: env.ANDROID_KEYSTORE_BASE64 == ''
         run: echo "::warning::未配置 Android 签名密钥，本次 Release 将使用 debug 签名。请配置 ANDROID_KEYSTORE_BASE64、ANDROID_KEYSTORE_PASSWORD、ANDROID_KEY_ALIAS、ANDROID_KEY_PASSWORD。"
 
@@ -117,7 +137,7 @@ jobs:
             --build-name="$APP_VERSION" \
             --build-number="$GITHUB_RUN_NUMBER"
 
-      - name: 整理构建产物
+      - name: 整理 Android 产物
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -126,36 +146,231 @@ jobs:
           (
             cd dist
             sha256sum "MyXLF-${APP_VERSION}.apk" "MyXLF-${APP_VERSION}.aab" \
-              > "SHA256SUMS-${APP_VERSION}.txt"
+              > "SHA256SUMS-${APP_VERSION}-android.txt"
           )
           ls -lh dist
 
-      - name: 上传构建产物
+      - name: 上传 Android 产物
         uses: actions/upload-artifact@v7
         with:
           name: android-release
           path: dist/*
           if-no-files-found: error
 
+  build-ios:
+    name: 构建 iOS 安装包
+    needs: prepare
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      APP_VERSION: ${{ needs.prepare.outputs.version }}
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 检查 iOS 签名配置
+        id: signing
+        run: |
+          set -euo pipefail
+          required="IOS_CERTIFICATE_BASE64 IOS_CERTIFICATE_PASSWORD IOS_PROVISIONING_PROFILE_BASE64 IOS_PROVISIONING_PROFILE_SPECIFIER IOS_TEAM_ID"
+          configured=0
+          missing=""
+          for name in $required; do
+            if [ -n "${!name:-}" ]; then
+              configured=$((configured + 1))
+            else
+              missing="$missing $name"
+            fi
+          done
+          if [ "$configured" -eq 0 ]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::未配置 iOS 签名 Secrets，本次将构建未签名 IPA（用户需要自行签名后侧载）。"
+          elif [ "$configured" -ne 5 ]; then
+            echo "::error::iOS 签名 Secrets 不完整，缺少:$missing"
+            exit 1
+          else
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 读取 Flutter 版本
+        id: flutter
+        run: echo "version=$(python3 -c 'import json; print(json.load(open(".fvmrc"))["flutter"])')" >> "$GITHUB_OUTPUT"
+
+      - name: 安装 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.flutter.outputs.version }}
+          channel: stable
+          cache: true
+
+      - name: 安装依赖
+        run: flutter pub get --enforce-lockfile
+
+      - name: 导入 iOS 签名证书
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security default-keychain -s "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          python3 -c 'import base64, os, sys; open(sys.argv[1], "wb").write(base64.b64decode(os.environ["IOS_CERTIFICATE_BASE64"]))' "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain_path" -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain_path" >/dev/null
+          security find-identity -v -p codesigning "$keychain_path"
+          if ! security find-identity -v -p codesigning "$keychain_path" | grep -q "Apple Distribution"; then
+            echo "::error::密钥链中未找到 Apple Distribution 证书，请使用 Apple Distribution 证书导出 .p12"
+            exit 1
+          fi
+          rm -f "$RUNNER_TEMP/certificate.p12"
+
+      - name: 安装 iOS 描述文件
+        if: steps.signing.outputs.signed == 'true'
+        run: |
+          set -euo pipefail
+          profile_path="$RUNNER_TEMP/profile.mobileprovision"
+          python3 -c 'import base64, os, sys; open(sys.argv[1], "wb").write(base64.b64decode(os.environ["IOS_PROVISIONING_PROFILE_BASE64"]))' "$profile_path"
+          profile_name=$(security cms -D -i "$profile_path" | plutil -extract Name raw -)
+          profile_uuid=$(security cms -D -i "$profile_path" | plutil -extract UUID raw -)
+          echo "描述文件：$profile_name ($profile_uuid)"
+          if [ "$profile_name" != "$IOS_PROVISIONING_PROFILE_SPECIFIER" ]; then
+            echo "::error::IOS_PROVISIONING_PROFILE_SPECIFIER 应为描述文件名称「$profile_name」，当前为「$IOS_PROVISIONING_PROFILE_SPECIFIER」"
+            exit 1
+          fi
+          for dir in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$profile_path" "$dir/$profile_uuid.mobileprovision"
+          done
+
+      - name: 构建签名 IPA
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          FLUTTER_XCODE_DEVELOPMENT_TEAM: ${{ secrets.IOS_TEAM_ID }}
+          FLUTTER_XCODE_CODE_SIGN_STYLE: Manual
+          FLUTTER_XCODE_CODE_SIGN_IDENTITY: Apple Distribution
+          FLUTTER_XCODE_PROVISIONING_PROFILE_SPECIFIER: ${{ secrets.IOS_PROVISIONING_PROFILE_SPECIFIER }}
+        run: |
+          flutter build ipa --release \
+            --build-name="$APP_VERSION" \
+            --build-number="$GITHUB_RUN_NUMBER" \
+            --export-method="$IOS_EXPORT_METHOD"
+
+      - name: 构建未签名 iOS App
+        if: steps.signing.outputs.signed != 'true'
+        run: |
+          flutter build ios --release \
+            --build-name="$APP_VERSION" \
+            --build-number="$GITHUB_RUN_NUMBER" \
+            --no-codesign
+
+      - name: 整理 iOS 产物
+        env:
+          IOS_SIGNED: ${{ steps.signing.outputs.signed }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          if [ "$IOS_SIGNED" = "true" ]; then
+            shopt -s nullglob
+            ipas=(build/ios/ipa/*.ipa)
+            if [ ${#ipas[@]} -eq 0 ]; then
+              echo "::error::未找到 IPA，请检查签名和导出日志"
+              exit 1
+            fi
+            ipa_name="MyXLF-${APP_VERSION}.ipa"
+            cp "${ipas[0]}" "dist/$ipa_name"
+          else
+            shopt -s nullglob
+            apps=(build/ios/iphoneos/*.app)
+            if [ ${#apps[@]} -eq 0 ]; then
+              echo "::error::未找到 build/ios/iphoneos/*.app"
+              exit 1
+            fi
+            app_path="${apps[0]}"
+            app_name="$(basename "$app_path")"
+            ipa_name="MyXLF-${APP_VERSION}-unsigned.ipa"
+            workdir="$RUNNER_TEMP/unsigned-ipa"
+            rm -rf "$workdir"
+            mkdir -p "$workdir/Payload"
+            ditto "$app_path" "$workdir/Payload/$app_name"
+            (
+              cd "$workdir"
+              zip -qry "$GITHUB_WORKSPACE/dist/$ipa_name" Payload
+            )
+            rm -rf "$workdir"
+          fi
+          (
+            cd dist
+            shasum -a 256 "$ipa_name" > "SHA256SUMS-${APP_VERSION}-ios.txt"
+          )
+          ls -lh dist
+
+      - name: 上传 iOS 产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-release
+          path: dist/*
+          if-no-files-found: error
+
   release:
     name: 发布 GitHub Release
-    needs: build
+    needs: [prepare, build-android, build-ios]
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      - name: 下载构建产物
+      - name: 下载 Android 产物
         uses: actions/download-artifact@v8
         with:
           name: android-release
           path: dist
 
+      - name: 下载 iOS 产物
+        uses: actions/download-artifact@v8
+        with:
+          name: ios-release
+          path: dist
+
+      - name: 生成安装说明
+        env:
+          IOS_SIGNED: ${{ needs.build-ios.outputs.signed }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## 安装说明"
+            echo ""
+            echo "### Android"
+            echo ""
+            echo "- \`MyXLF-${VERSION}.apk\`：直接安装。"
+            echo ""
+            echo "### iOS"
+            echo ""
+            if [ "$IOS_SIGNED" = "true" ]; then
+              echo "- \`MyXLF-${VERSION}.ipa\`：已签名，可通过 Transporter 上传到 App Store Connect / TestFlight。"
+            else
+              echo "- \`MyXLF-${VERSION}-unsigned.ipa\`：**未签名**，不能直接安装。"
+              echo "- 请使用 AltStore、SideStore、Sideloadly 或 Xcode 用自己的 Apple ID 重新签名后安装。"
+              echo "- 免费 Apple ID 签名的应用通常 7 天后过期，需要重新签名；付费开发者账号签名为 1 年。"
+            fi
+            echo ""
+            echo "---"
+          } > release-notes.md
+          cat release-notes.md
+
       - name: 创建 Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.build.outputs.tag }}
-          name: MyXLF v${{ needs.build.outputs.version }}
-          files: dist/*
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: MyXLF v${{ needs.prepare.outputs.version }}
+          body_path: release-notes.md
           generate_release_notes: true
-          prerelease: ${{ contains(needs.build.outputs.version, '-') }}
+          prerelease: ${{ contains(needs.prepare.outputs.version, '-') }}
+          files: dist/*
           fail_on_unmatched_files: true
