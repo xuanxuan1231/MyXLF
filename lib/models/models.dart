@@ -380,6 +380,9 @@ class QuestionScore {
     required this.fullScore,
     this.correctAnswer,
     this.answerStatus,
+    this.gradeMaxScore,
+    this.gradeAverageScore,
+    this.gradeScoreRate,
     this.knowledgePoint,
     this.ability,
   });
@@ -399,6 +402,15 @@ class QuestionScore {
   /// 作答情况：√（正确）、0/B（错误且作答B）、0/3/4（主观题得分）等。
   final String? answerStatus;
 
+  /// 年级最高分。
+  final double? gradeMaxScore;
+
+  /// 年级平均分。
+  final double? gradeAverageScore;
+
+  /// 年级得分率（0～1）。
+  final double? gradeScoreRate;
+
   /// 考查的知识点（通常为空）。
   final String? knowledgePoint;
 
@@ -413,6 +425,26 @@ class QuestionScore {
     if (s.isEmpty) return 0;
     if (s.startsWith('0')) return 0;
     return double.tryParse(s) ?? 0;
+  }
+
+  /// 我的得分率（0～1）。
+  double get myScoreRate => fullScore > 0 ? myScore / fullScore : 0;
+
+  /// 是否得满分。
+  bool get isFullMark => fullScore > 0 && myScore >= fullScore - 0.001;
+
+  /// 是否为零分。
+  bool get isZero => myScore <= 0.001;
+
+  /// 是否为部分得分。
+  bool get isPartial => !isFullMark && !isZero;
+
+  /// 客观题中答错的选项（由「0/B」这类作答情况推导）。
+  String? get selectedAnswer {
+    final match = RegExp(r'^0/(.+)$').firstMatch(answerStatus ?? '');
+    if (match == null) return null;
+    final value = match.group(1)?.trim();
+    return value == null || value.isEmpty ? null : value;
   }
 }
 

@@ -276,20 +276,55 @@ class Parsers {
     }
     if (questionTable != null) {
       final rows = questionTable.querySelectorAll('tr');
+      final headers = rows.isEmpty
+          ? const <String>[]
+          : rows.first
+              .querySelectorAll('td,th')
+              .map((cell) => _clean(cell.text).replaceAll(' ', ''))
+              .toList();
+
+      // 优先按表头定位列，避免不同报告的列数或顺序变化导致错位。
+      int columnOf(List<String> keys, int fallback) {
+        for (var i = 0; i < headers.length; i++) {
+          if (keys.any(headers[i].contains)) return i;
+        }
+        return fallback;
+      }
+
+      final numberIndex = columnOf(const ['小题编号', '题号'], 0);
+      final typeIndex = columnOf(const ['题型'], 1);
+      final fullScoreIndex = columnOf(const ['满分'], 2);
+      final answerIndex = columnOf(const ['正确答案'], 3);
+      final statusIndex = columnOf(const ['作答情况'], 4);
+      final maxIndex = columnOf(const ['年级最高分', '最高分'], 5);
+      final averageIndex = columnOf(const ['年级平均分', '平均分'], 6);
+      final rateIndex = columnOf(const ['年级得分率', '得分率'], 7);
+      final knowledgeIndex = columnOf(const ['知识点'], 8);
+      final abilityIndex = columnOf(const ['能力'], 9);
+
       for (final tr in rows.skip(1)) {
         final cells = tr
             .querySelectorAll('td')
             .map((td) => _clean(td.text))
             .toList();
-        if (cells.length < 5) continue;
+        String cellAt(int index) =>
+            index >= 0 && index < cells.length ? cells[index] : '';
+        if (cellAt(numberIndex).isEmpty) continue;
+
         questions.add(QuestionScore(
-          number: cells[0],
-          type: cells[1],
-          fullScore: double.tryParse(cells[2]) ?? 0,
-          correctAnswer: cells[3].isEmpty ? null : cells[3],
-          answerStatus: cells[4].isEmpty ? null : cells[4],
-          knowledgePoint: cells.length > 5 && cells[5].isNotEmpty ? cells[5] : null,
-          ability: cells.length > 6 && cells[6].isNotEmpty ? cells[6] : null,
+          number: cellAt(numberIndex),
+          type: cellAt(typeIndex),
+          fullScore: double.tryParse(cellAt(fullScoreIndex)) ?? 0,
+          correctAnswer:
+              cellAt(answerIndex).isEmpty ? null : cellAt(answerIndex),
+          answerStatus:
+              cellAt(statusIndex).isEmpty ? null : cellAt(statusIndex),
+          gradeMaxScore: _numAtOrNull(cells, maxIndex),
+          gradeAverageScore: _numAtOrNull(cells, averageIndex),
+          gradeScoreRate: _rateAt(cells, rateIndex),
+          knowledgePoint:
+              cellAt(knowledgeIndex).isEmpty ? null : cellAt(knowledgeIndex),
+          ability: cellAt(abilityIndex).isEmpty ? null : cellAt(abilityIndex),
         ));
       }
     }
@@ -550,6 +585,19 @@ class Parsers {
     final text = values[index].replaceAll(',', '').trim();
     if (text.isEmpty) return null;
     return double.tryParse(text);
+  }
+
+  /// 解析「99.60%」这类得分率文本；兼容没有百分号的小数。
+  static double? _rateAt(List<String> values, int index) {
+    if (index < 0 || index >= values.length) return null;
+    final text = values[index].replaceAll(',', '').trim();
+    if (text.isEmpty) return null;
+    final hasPercent = text.endsWith('%');
+    final value = double.tryParse(
+      hasPercent ? text.substring(0, text.length - 1).trim() : text,
+    );
+    if (value == null) return null;
+    return hasPercent || value > 1 ? value / 100 : value;
   }
 
   static String _after(String text, String prefix) {

@@ -207,4 +207,60 @@ void main() {
       expect(report.scoreRate, 0.75);
     });
   });
+
+  group('学科分析卷面作答解析', () {
+    test('按表头解析得分、年级指标与知识点', () {
+      final report = Parsers.parseSubjectReport('''
+      <html><body>
+      <table>
+        <tr>
+          <td>小题编号</td><td>题型</td><td>满分</td><td>正确答案</td>
+          <td>作答情况</td><td>年级最高分</td><td>年级平均分</td>
+          <td>年级得分率</td><td>考查的知识点</td><td>考查的能力</td>
+        </tr>
+        <tr>
+          <td>1</td><td>单选题</td><td>2</td><td>D</td><td>√</td>
+          <td>2</td><td>1.86</td><td>93.12%</td><td>世界近代史</td><td>历史知识</td>
+        </tr>
+        <tr>
+          <td>3</td><td>单选题</td><td>2</td><td>C</td><td>0/A</td>
+          <td>2</td><td>0.91</td><td>45.34%</td><td>世界近代史</td><td>历史认识</td>
+        </tr>
+        <tr>
+          <td>21.1</td><td>主观题</td><td>16</td><td>&nbsp;</td><td>11</td>
+          <td>16</td><td>12.67</td><td>79.20%</td><td>史料实证</td><td>&nbsp;</td>
+        </tr>
+      </table>
+      </body></html>
+      ''');
+
+      expect(report.questions.length, 3);
+
+      final correct = report.questions[0];
+      expect(correct.number, '1');
+      expect(correct.myScore, 2);
+      expect(correct.isFullMark, isTrue);
+      expect(correct.gradeMaxScore, 2);
+      expect(correct.gradeAverageScore, 1.86);
+      expect(correct.gradeScoreRate, closeTo(0.9312, 0.0001));
+      expect(correct.knowledgePoint, '世界近代史');
+      expect(correct.ability, '历史知识');
+
+      final wrong = report.questions[1];
+      expect(wrong.myScore, 0);
+      expect(wrong.isZero, isTrue);
+      expect(wrong.selectedAnswer, 'A');
+      expect(wrong.correctAnswer, 'C');
+
+      final partial = report.questions[2];
+      expect(partial.number, '21.1');
+      expect(partial.myScore, 11);
+      expect(partial.isPartial, isTrue);
+      expect(partial.myScoreRate, closeTo(11 / 16, 0.0001));
+      expect(partial.correctAnswer, isNull);
+      expect(partial.gradeScoreRate, closeTo(0.792, 0.0001));
+      expect(partial.knowledgePoint, '史料实证');
+      expect(partial.ability, isNull);
+    });
+  });
 }

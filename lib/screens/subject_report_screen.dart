@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
+import '../widgets/question_answers_section.dart';
 import '../widgets/score_rate_chart.dart';
 import '../widgets/xlf_image.dart';
 import 'answer_sheet_screen.dart';
@@ -96,13 +97,8 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
             _buildAnswerSheetSection(report),
           ],
           const SizedBox(height: 20),
-          _sectionTitle(
-            '卷面作答',
-            trailing: report.questions.isEmpty
-                ? null
-                : '${report.questions.length} 题',
-          ),
-          _card(_buildQuestionTable(report)),
+          _sectionTitle('卷面作答'),
+          QuestionAnswersSection(questions: report.questions),
           if (_hasGainLoss(report)) ...[
             const SizedBox(height: 20),
             _sectionTitle('得失分分析'),
@@ -118,25 +114,11 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
     );
   }
 
-  Widget _sectionTitle(String title, {String? trailing}) {
+  Widget _sectionTitle(String title) {
     final textTheme = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-      child: Row(
-        children: [
-          Text(title, style: textTheme.titleMedium),
-          if (trailing != null) ...[
-            const Spacer(),
-            Text(
-              trailing,
-              style: textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ],
-      ),
+      child: Text(title, style: textTheme.titleMedium),
     );
   }
 
@@ -197,42 +179,8 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
               ),
             ],
           ),
-          if (report.questions.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Divider(height: 1, color: scheme.outlineVariant),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _statTile('满分题', '${report.fullMarkCount}')),
-                Expanded(child: _statTile('部分得分', '${report.partialCount}')),
-                Expanded(child: _statTile('零分题', '${report.zeroCount}')),
-              ],
-            ),
-          ],
         ],
       ),
-    );
-  }
-
-  Widget _statTile(String label, String value) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          value,
-          style: textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w700,
-            fontVariations: const [FontVariation('wght', 700)],
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-        ),
-      ],
     );
   }
 
@@ -293,107 +241,6 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
         ),
       ),
     );
-  }
-
-  // ---- 卷面作答 ----
-
-  Widget _buildQuestionTable(SubjectReport report) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    if (report.questions.isEmpty) {
-      return Text('暂无逐题数据', style: TextStyle(color: scheme.onSurfaceVariant));
-    }
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: DataTable(
-        headingRowColor: WidgetStatePropertyAll(scheme.primaryContainer),
-        headingTextStyle: textTheme.titleSmall?.copyWith(
-          color: scheme.onPrimaryContainer,
-        ),
-        dividerThickness: 0.5,
-        columnSpacing: 24,
-        horizontalMargin: 8,
-        dataRowMinHeight: 48,
-        dataRowMaxHeight: 56,
-        showBottomBorder: false,
-        columns: const [
-          DataColumn(label: Text('题号')),
-          DataColumn(label: Text('得分'), numeric: true),
-          DataColumn(label: Text('答案')),
-          DataColumn(label: Text('作答')),
-        ],
-        rows: report.questions.map((q) {
-          return DataRow(
-            cells: [
-              DataCell(_questionCell(q)),
-              DataCell(_scoreCell(q)),
-              DataCell(Text(q.correctAnswer ?? '—')),
-              DataCell(_answerCell(q.answerStatus)),
-            ],
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _questionCell(QuestionScore q) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(q.number, style: textTheme.titleSmall),
-        Text(
-          q.type,
-          style: textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
-        ),
-      ],
-    );
-  }
-
-  /// 将「满分」与「得分」合并为 3/5 的形式，并用颜色区分结果。
-  Widget _scoreCell(QuestionScore q) {
-    final scheme = Theme.of(context).colorScheme;
-    final appColors = AppColors.of(context);
-    final textTheme = Theme.of(context).textTheme;
-    final score = q.myScore;
-    final Color color;
-    if (q.fullScore <= 0) {
-      color = scheme.onSurfaceVariant;
-    } else if (score >= q.fullScore - 0.001) {
-      color = appColors.success;
-    } else if (score <= 0.001) {
-      color = scheme.error;
-    } else {
-      color = appColors.warning;
-    }
-    return Text(
-      '${_fmt(score)}/${_fmt(q.fullScore)}',
-      style: textTheme.titleSmall?.copyWith(
-        color: color,
-        fontWeight: FontWeight.w700,
-      ),
-    );
-  }
-
-  Widget _answerCell(String? status) {
-    final scheme = Theme.of(context).colorScheme;
-    final appColors = AppColors.of(context);
-    final textTheme = Theme.of(context).textTheme;
-    final s = status ?? '';
-    if (s.isEmpty) {
-      return Text('—', style: TextStyle(color: scheme.onSurfaceVariant));
-    }
-    final Color color;
-    if (s == '√') {
-      color = appColors.success; // 正确
-    } else if (s.startsWith('0')) {
-      color = scheme.error; // 错误
-    } else {
-      color = appColors.warning; // 部分得分
-    }
-    return Text(s, style: textTheme.titleSmall?.copyWith(color: color));
   }
 
   // ---- 得失分分析 ----
