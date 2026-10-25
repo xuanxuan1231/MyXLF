@@ -138,7 +138,37 @@ void main() {
       );
       expect(report.totalLevel, 3);
       expect(report.totalLevelLabel, '3 层次');
+      expect(report.subjectLevels, {'数学': 3, '英语': 3});
       expect(report.levelSubjects, ['数学', '英语']);
+    });
+
+    test('按层次分组解析单科层次，优势弱势科目只保留科目名', () {
+      final report = Parsers.parseTotalReport('''
+      <html><body>
+      <table>
+        <tr>
+          <td class="lt_tilte_2">优势科目：</td>
+          <td class="stu_rpt_content">在本次考试中，<span class='blue_txt'>英语</span>是你的优势科目，要保持。</td>
+        </tr>
+        <tr>
+          <td class="lt_tilte_2">弱势科目：</td>
+          <td class="stu_rpt_content">在本次考试中，<span class='red_txt'>物理、化学、历史</span>是弱势科目，需要加强。</td>
+        </tr>
+      </table>
+      <span class="stu_rpt_content">
+        你在年级中的位置：<br/>
+        总分处于<span class='blue_txt'>4层次</span>。<br/><br/>
+        3层次科目：<span class='blue_txt'>英语</span>。<br/>
+        4层次科目：<span class='blue_txt'>语文、数学、物理、化学、历史</span>。<br/>
+      </span>
+      </body></html>
+      ''');
+      expect(report.totalLevel, 4);
+      expect(report.advantageSubjects, '英语');
+      expect(report.weakSubjects, '物理、化学、历史');
+      expect(report.subjectLevel('英语'), 3);
+      expect(report.subjectLevel('数学'), 4);
+      expect(report.levelSubjects, ['语文', '数学', '物理', '化学', '历史']);
     });
 
     test('统计满分 / 部分得分 / 零分题数', () {

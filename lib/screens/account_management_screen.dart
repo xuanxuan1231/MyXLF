@@ -8,9 +8,16 @@ import 'login_screen.dart';
 
 /// 账户管理页：添加 / 删除 / 设为默认账号（点击账号切换）。
 class AccountManagementScreen extends StatefulWidget {
-  const AccountManagementScreen({super.key, required this.onSwitchAccount});
+  const AccountManagementScreen({
+    super.key,
+    required this.onSwitchAccount,
+    this.onDefaultChanged,
+  });
 
   final void Function(Account, LoginResult) onSwitchAccount;
+
+  /// 显式修改默认账号后的回调，用于同步刷新当前账户页的「默认」标记。
+  final void Function(String username)? onDefaultChanged;
 
   @override
   State<AccountManagementScreen> createState() => _AccountManagementScreenState();
@@ -62,8 +69,8 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
         classId: result.classId,
         lastLoginAt: DateTime.now().millisecondsSinceEpoch,
       );
+      // 切换账号只更新当前登录状态，不改变「默认账号」。
       await AccountStore.instance.addOrUpdate(fresh);
-      await AccountStore.instance.setDefault(account.username);
       if (!mounted) return;
       Navigator.of(context).pop(); // 关闭加载框
       widget.onSwitchAccount(fresh, result);
@@ -80,6 +87,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
   Future<void> _setDefault(Account account) async {
     await AccountStore.instance.setDefault(account.username);
     if (!mounted) return;
+    widget.onDefaultChanged?.call(account.username);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('已将「${account.username}」设为默认账号'),
@@ -118,7 +126,11 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
     );
     if (confirmed != true) return;
     await AccountStore.instance.remove(account.username);
+    final defaultAccount = await AccountStore.instance.getDefault();
     if (!mounted) return;
+    if (defaultAccount != null) {
+      widget.onDefaultChanged?.call(defaultAccount.username);
+    }
     await _refresh();
   }
 

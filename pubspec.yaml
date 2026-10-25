@@ -49,6 +49,9 @@ dependencies:
   # 与 m3e_core 1.1.4 自带的同名形状产生 Dart 符号歧义；1.7.x 无此冲突。
   material_ui: '>=1.4.0 <1.8.0'
   m3e_core: ^1.1.4
+  # 关于页面：读取应用版本号、打开项目主页 / 下载链接
+  package_info_plus: ^8.3.0
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:

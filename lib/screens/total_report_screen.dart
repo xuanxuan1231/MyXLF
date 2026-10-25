@@ -173,7 +173,8 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
             link.score,
             link.scoreTotal,
             showChevron: true,
-            levelName: link.levelName,
+            levelName:
+                _subjectLevelName(report, link.subjectName) ?? link.levelName,
             maxScore: score.maxScores?.valueFor(link.subjectName),
             averageScore: score.averageScores?.valueFor(link.subjectName),
             classRank: score.classRanks?.valueFor(link.subjectName),
@@ -185,7 +186,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
           subject.name,
           subject.score,
           subject.fullScore,
-          levelName: _fallbackLevelName(report, subject.name),
+          levelName: _subjectLevelName(report, subject.name),
           maxScore: score.maxScores?.valueFor(subject.name),
           averageScore: score.averageScores?.valueFor(subject.name),
           classRank: score.classRanks?.valueFor(subject.name),
@@ -373,13 +374,13 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     );
   }
 
-  /// 无科目入口时，用综述中的「同层次科目」回填该科目的层次。
-  String? _fallbackLevelName(TotalReport report, String subjectName) {
-    final level = report.totalLevel;
-    if (level == null || !report.levelSubjects.contains(subjectName)) {
-      return null;
-    }
-    return '$level层次';
+  /// 单科层次以综述中「N层次科目」的分组为准。
+  ///
+  /// 平台科目入口参数里的 levelName 在多科目考试中可能统一为总分层次，
+  /// 因此只在报告没有给出该科目层次时，才回退到入口参数。
+  String? _subjectLevelName(TotalReport report, String subjectName) {
+    final level = report.subjectLevel(subjectName);
+    return level == null ? null : '$level层次';
   }
 
   /// 科目层次标签：规范化「3层次」这类文本，无法识别时返回 null。

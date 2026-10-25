@@ -32,3 +32,8 @@ const String kSubjectReportUrl =
 
 /// 账户信息地址（读取用户名 / 学校 / 班级等基本信息）。
 const String kAccountInfoUrl = '$kBaseUrl/useradmin/ChangePasswordAction.a';
+
+/// GitHub 仓库（关于页展示与更新检查使用）。
+const String kGithubOwner = 'xuanxuan1231';
+const String kGithubRepo = 'MyXLF';
+const String kGithubUrl = 'https://github.com/$kGithubOwner/$kGithubRepo';

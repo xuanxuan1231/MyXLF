@@ -340,17 +340,35 @@ class TotalReport {
   String? get totalLevelLabel =>
       totalLevel == null ? null : '$totalLevel 层次';
 
+  /// 各科目所处层次（科目名 → 层次），来自「3层次科目：英语」这样的分组文本。
+  ///
+  /// 平台科目入口参数里的 `levelName` 在多科目考试中可能统一为总分层次，
+  /// 这里以报告中按层次分组的科目列表为准。
+  Map<String, int> get subjectLevels {
+    final levels = <String, int>{};
+    final regex = RegExp(r'(\d+)\s*层次科目[：:]\s*([^。；;\n]+)');
+    for (final match in regex.allMatches(rankText ?? '')) {
+      final level = int.tryParse(match.group(1)!);
+      if (level == null) continue;
+      for (final name in match.group(2)!.split(RegExp(r'[、,，/]'))) {
+        final subject = name.trim();
+        if (subject.isNotEmpty) levels[subject] = level;
+      }
+    }
+    return levels;
+  }
+
+  /// 指定科目所处的层次，无法解析时为 null。
+  int? subjectLevel(String subjectName) => subjectLevels[subjectName];
+
   /// 与总分同层次的科目列表。
   List<String> get levelSubjects {
-    final match = RegExp(r'层次科目[：:]\s*([^。；;]+)')
-        .firstMatch(rankText ?? '');
-    if (match == null) return const [];
-    return match
-        .group(1)!
-        .split(RegExp(r'[、,，/]'))
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
+    final level = totalLevel;
+    if (level == null) return const [];
+    return [
+      for (final entry in subjectLevels.entries)
+        if (entry.value == level) entry.key,
+    ];
   }
 }
 

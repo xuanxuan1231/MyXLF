@@ -4,6 +4,7 @@ import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../services/xlf_client.dart';
+import 'about_screen.dart';
 import 'account_management_screen.dart';
 import 'login_screen.dart';
 
@@ -14,17 +15,28 @@ class AccountScreen extends StatelessWidget {
     required this.account,
     required this.loginResult,
     required this.onSwitchAccount,
+    required this.onDefaultChanged,
   });
 
   final Account account;
   final LoginResult loginResult;
   final void Function(Account, LoginResult) onSwitchAccount;
+  final void Function(String username) onDefaultChanged;
 
   Future<void> _openManagement(BuildContext context) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => AccountManagementScreen(onSwitchAccount: onSwitchAccount),
+        builder: (_) => AccountManagementScreen(
+          onSwitchAccount: onSwitchAccount,
+          onDefaultChanged: onDefaultChanged,
+        ),
       ),
+    );
+  }
+
+  Future<void> _openAbout(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AboutScreen()),
     );
   }
 
@@ -85,6 +97,13 @@ class AccountScreen extends StatelessWidget {
             size: M3EButtonSize.md,
             icon: const Icon(Icons.manage_accounts_outlined),
             label: const Text('账户管理'),
+          ),
+          const SizedBox(height: 12),
+          M3EOutlinedButton.icon(
+            onPressed: () => _openAbout(context),
+            size: M3EButtonSize.md,
+            icon: const Icon(Icons.info_outline),
+            label: const Text('关于'),
           ),
           const SizedBox(height: 12),
           M3EOutlinedButton.icon(

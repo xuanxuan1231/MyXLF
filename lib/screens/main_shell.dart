@@ -53,6 +53,13 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
+  /// 默认账号变更后，刷新当前账号上的「默认」标记。
+  void _changeDefault(String username) {
+    setState(() {
+      _account.isDefault = _account.username == username;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -68,6 +75,7 @@ class _MainShellState extends State<MainShell> {
             account: _account,
             loginResult: _loginResult,
             onSwitchAccount: _switchAccount,
+            onDefaultChanged: _changeDefault,
           ),
         ],
       ),

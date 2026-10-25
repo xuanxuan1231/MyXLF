@@ -151,6 +151,7 @@ class Parsers {
       }
     }
 
+    final linkSubjectNames = subjectLinks.map((l) => l.subjectName).toList();
     String? advantage;
     String? weak;
     String? balance;
@@ -159,11 +160,12 @@ class Parsers {
       if (labelTd == null) continue;
       final label = labelTd.text.trim();
       final tds = tr.querySelectorAll('td');
-      final content = tds.length > 1 ? _clean(tds[1].text) : '';
+      final contentCell = tds.length > 1 ? tds[1] : null;
+      final content = contentCell == null ? '' : _clean(contentCell.text);
       if (label.contains('优势科目')) {
-        advantage = content;
+        advantage = _subjectNames(contentCell, content, linkSubjectNames);
       } else if (label.contains('弱势科目')) {
-        weak = content;
+        weak = _subjectNames(contentCell, content, linkSubjectNames);
       } else if (label.isEmpty) {
         balance = content;
       }
@@ -561,6 +563,37 @@ class Parsers {
         .replaceAll('\u00a0', ' ') // &nbsp;
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+  }
+
+  /// 提取优势 / 弱势科目单元格中的科目名。
+  ///
+  /// 平台把科目名放在 blue_txt / red_txt 高亮里，叙述文字（如
+  /// 「在本次考试中」「是优势科目，要保持」）不是科目；没有高亮时，
+  /// 再从已知科目中匹配，避免把整段说明当成科目标签。
+  static String _subjectNames(
+    Element? cell,
+    String fallback,
+    List<String> knownSubjects,
+  ) {
+    if (cell != null) {
+      final highlighted = <String>[];
+      for (final span in cell.querySelectorAll('span.blue_txt, span.red_txt')) {
+        highlighted.addAll(_splitSubjectNames(span.text));
+      }
+      if (highlighted.isNotEmpty) return highlighted.join('、');
+    }
+
+    final matched =
+        knownSubjects.where((name) => fallback.contains(name)).toList()
+          ..sort((a, b) => fallback.indexOf(a).compareTo(fallback.indexOf(b)));
+    return matched.isEmpty ? fallback : matched.join('、');
+  }
+
+  static Iterable<String> _splitSubjectNames(String text) sync* {
+    for (final part in _clean(text).split(RegExp(r'[、,，;；/。.\s]+'))) {
+      final name = part.trim();
+      if (name.isNotEmpty) yield name;
+    }
   }
 
   /// 按逗号拆分参数（忽略引号内的逗号），并剥离引号。
