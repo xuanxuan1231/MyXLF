@@ -53,6 +53,15 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
   /// 点击账号 → 切换到该账号。
   Future<void> _switchTo(Account account) async {
     final scaffold = ScaffoldMessenger.of(context);
+    if (account.password.isEmpty) {
+      scaffold.showSnackBar(
+        SnackBar(
+          content: Text('无法读取「${account.username}」保存的密码，请重新添加该账号'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -70,9 +79,19 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
         lastLoginAt: DateTime.now().millisecondsSinceEpoch,
       );
       // 切换账号只更新当前登录状态，不改变「默认账号」。
+      AccountStore.instance.consumeLastError();
       await AccountStore.instance.addOrUpdate(fresh);
+      final storageError = AccountStore.instance.consumeLastError();
       if (!mounted) return;
       Navigator.of(context).pop(); // 关闭加载框
+      if (storageError != null) {
+        scaffold.showSnackBar(
+          SnackBar(
+            content: Text('$storageError\n密码未能安全保存'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       widget.onSwitchAccount(fresh, result);
       Navigator.of(context).pop(); // 返回主界面
     } catch (e) {

@@ -120,6 +120,19 @@ class XlfClient {
     }
   }
 
+  /// 使用当前登录账号主动重新登录。
+  ///
+  /// 供业务层在会话异常（例如考试列表被服务端清空）时恢复，
+  /// 避免各处直接读取本地保存的密码。未登录时抛出 [XlfException]。
+  Future<void> relogin() async {
+    final username = _username;
+    final password = _password;
+    if (username == null || password == null) {
+      throw XlfException('登录状态已失效，请重新登录');
+    }
+    await login(username, password);
+  }
+
   // ---------------------------------------------------------------------------
   // 登录
   // ---------------------------------------------------------------------------

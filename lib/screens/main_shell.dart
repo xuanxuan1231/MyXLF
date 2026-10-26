@@ -20,8 +20,26 @@ Future<void> enterShell(
     classId: result.classId,
     lastLoginAt: DateTime.now().millisecondsSinceEpoch,
   );
-  final saved = await AccountStore.instance.addOrUpdate(fresh);
+  // 清除上一轮遗留的错误，再保存账号；安全存储失败不应阻断本次登录。
+  AccountStore.instance.consumeLastError();
+  Account saved;
+  String? saveError;
+  try {
+    saved = await AccountStore.instance.addOrUpdate(fresh);
+  } catch (e) {
+    saved = fresh;
+    saveError = '账号信息保存失败：$e';
+  }
+  saveError ??= AccountStore.instance.consumeLastError();
   if (!context.mounted) return;
+  if (saveError != null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$saveError\n密码未能安全保存，下次启动可能需要重新登录'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
   Navigator.of(context).pushAndRemoveUntil(
     MaterialPageRoute(builder: (_) => MainShell(account: saved, loginResult: result)),
     (route) => false,

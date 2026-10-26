@@ -47,13 +47,10 @@ class _HomeScreenState extends State<HomeScreen> {
       var html = await _fetch();
       var exams = Parsers.parseExamList(html);
 
-      // 服务器偶发会清空考试列表（浏览报告后尤其常见）。此时用已保存的账号
-      // 自动重新登录一次以恢复会话；仍为空则按真实「暂无记录」展示。
+      // 服务器偶发会清空考试列表（浏览报告后尤其常见）。此时用当前登录
+      // 账号自动重新登录一次以恢复会话；仍为空则按真实「暂无记录」展示。
       if (exams.isEmpty) {
-        await XlfClient.instance.login(
-          widget.account.username,
-          widget.account.password,
-        );
+        await XlfClient.instance.relogin();
         html = await _fetch();
         exams = Parsers.parseExamList(html);
       }

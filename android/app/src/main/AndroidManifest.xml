@@ -5,10 +5,13 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
+    <!-- 禁用自动备份：安全存储的密文与设备 Keystore 绑定，
+         恢复到新设备后无法解密，只会导致读取失败。 -->
     <application
         android:label="MyXLF"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"

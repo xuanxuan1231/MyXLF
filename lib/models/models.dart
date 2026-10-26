@@ -21,7 +21,7 @@ class HomeFilters {
 class Account {
   Account({
     required this.username,
-    required this.password,
+    this.password = '',
     this.schoolName,
     this.className,
     this.userId,
@@ -34,7 +34,10 @@ class Account {
   /// 登录名（学生姓名或手机号）。
   final String username;
 
-  /// 登录密码（明文存储；生产环境建议改用安全存储）。
+  /// 登录密码（仅保存在内存中）。
+  ///
+  /// 密码由 `AccountStore` 写入系统安全存储（Android Keystore /
+  /// iOS Keychain / Linux libsecret），不会通过 [toJson] 持久化。
   final String password;
 
   /// 学校名称。
@@ -82,9 +85,9 @@ class Account {
     );
   }
 
+  /// 序列化账号资料（不含密码，密码单独存入系统安全存储）。
   Map<String, dynamic> toJson() => {
         'username': username,
-        'password': password,
         'schoolName': schoolName,
         'className': className,
         'userId': userId,
@@ -96,6 +99,8 @@ class Account {
 
   factory Account.fromJson(Map<String, dynamic> json) => Account(
         username: json['username'] as String? ?? '',
+        // 兼容旧版明文密码字段：AccountStore 读取后会迁移到安全存储，
+        // 并重写账号 JSON 删除该字段。
         password: json['password'] as String? ?? '',
         schoolName: json['schoolName'] as String?,
         className: json['className'] as String?,

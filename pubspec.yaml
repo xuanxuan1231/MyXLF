@@ -40,6 +40,9 @@ dependencies:
   encrypt: ^5.0.3
   html: ^0.15.4
   shared_preferences: ^2.3.2
+  # 账号密码安全存储（Android Keystore / iOS Keychain / Linux libsecret）
+  # 锁定 10.x：11.x 的 Windows 实现要求 win32 ^6，与 share_plus 10.x 冲突。
+  flutter_secure_storage: ^10.3.4
   intl: ^0.20.3
   # 答卷图片分享 / 保存到相册
   share_plus: ^10.1.4

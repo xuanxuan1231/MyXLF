@@ -1,10 +1,16 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:xlf/models/models.dart';
+import 'package:xlf/services/account_store.dart';
 import 'package:xlf/services/aes_crypto.dart';
 import 'package:xlf/services/parsers.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('AES 加密', () {
     test('与网页端 CryptoJS 输出一致', () {
       final crypto = AesCrypto.instance;
@@ -304,4 +310,117 @@ void main() {
       expect(entries[1].isSuccess, isFalse);
     });
   });
+
+  group('账号模型', () {
+    test('序列化不包含密码，同时兼容旧版明文字段', () {
+      final account = Account(
+        username: '张三',
+        password: 'secret',
+        schoolName: '测试中学',
+        isDefault: true,
+      );
+      final json = account.toJson();
+      expect(json.containsKey('password'), isFalse);
+      expect(json['username'], '张三');
+      expect(json['schoolName'], '测试中学');
+
+      // 旧版 JSON 仍能读出密码，供 AccountStore 迁移到安全存储。
+      final legacy = Account.fromJson({
+        'username': '张三',
+        'password': 'legacy-secret',
+      });
+      expect(legacy.password, 'legacy-secret');
+    });
+  });
+
+  group('账号安全存储', () {
+    test('旧版明文密码迁移到安全存储，并从账号 JSON 中删除', () async {
+      SharedPreferences.setMockInitialValues({
+        'xlf_accounts': jsonEncode([
+          {
+            'username': '张三',
+            'password': 'legacy-secret',
+            'schoolName': '测试中学',
+            'isDefault': true,
+          },
+        ]),
+      });
+      final vault = _MemoryVault();
+      final store = AccountStore.withVault(vault);
+
+      final accounts = await store.load();
+      expect(accounts.single.password, 'legacy-secret');
+      expect(vault.data['张三'], 'legacy-secret');
+      expect(store.consumeLastError(), isNull);
+
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('xlf_accounts')!;
+      expect(saved.contains('password'), isFalse);
+      expect(saved.contains('legacy-secret'), isFalse);
+    });
+
+    test('安全存储写入失败时保留旧数据并报告错误', () async {
+      SharedPreferences.setMockInitialValues({
+        'xlf_accounts': jsonEncode([
+          {
+            'username': '张三',
+            'password': 'legacy-secret',
+            'isDefault': true,
+          },
+        ]),
+      });
+      final vault = _MemoryVault()..failWrites = true;
+      final store = AccountStore.withVault(vault);
+
+      final accounts = await store.load();
+      expect(accounts.single.password, 'legacy-secret');
+      expect(store.consumeLastError(), isNotNull);
+
+      // 未迁移成功时保留旧字段，避免用户密码丢失；但不会写入新明文。
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('xlf_accounts'), contains('legacy-secret'));
+    });
+
+    test('新账号密码只写入安全存储，不进入 SharedPreferences', () async {
+      SharedPreferences.setMockInitialValues({});
+      final vault = _MemoryVault();
+      final store = AccountStore.withVault(vault);
+
+      await store.addOrUpdate(Account(
+        username: '李四',
+        password: 'new-secret',
+        schoolName: '测试中学',
+      ));
+      expect(vault.data['李四'], 'new-secret');
+
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('xlf_accounts')!;
+      expect(saved, isNot(contains('new-secret')));
+      expect(saved, isNot(contains('"password"')));
+
+      await store.addOrUpdate(Account(username: '王五', password: 'p2'));
+      await store.remove('李四');
+      expect(vault.data.containsKey('李四'), isFalse);
+    });
+  });
+}
+
+/// 测试用内存密码存储。
+class _MemoryVault implements PasswordVault {
+  final Map<String, String> data = {};
+  bool failWrites = false;
+
+  @override
+  Future<String?> read(String username) async => data[username];
+
+  @override
+  Future<void> write(String username, String password) async {
+    if (failWrites) throw StateError('keyring unavailable');
+    data[username] = password;
+  }
+
+  @override
+  Future<void> delete(String username) async {
+    data.remove(username);
+  }
 }

@@ -36,9 +36,13 @@ void main() {
       // ignore: avoid_print
       print('考试列表：${exams.map((e) => '${e.testId}:${e.name}').join(' | ')}');
 
-      // 3. 总分报告（数学统练 testId=143569）
+      // 3. 总分报告（优先使用有完整答卷的数学统练 testId=143569）
+      final exam = exams.firstWhere(
+        (e) => e.testId == '143569',
+        orElse: () => exams.first,
+      );
       final totalHtml = await XlfClient.instance.fetchTotalReportHtml(
-        exams.first.testId,
+        exam.testId,
       );
       final total = Parsers.parseTotalReport(totalHtml);
       expect(total.scoreReport.subjects, isNotEmpty);

@@ -24,6 +24,8 @@ fvm flutter test --exclude-tags e2e   # 单元测试（跳过需要真实服务�
 fvm flutter test test/e2e_test.dart   # 手动运行端到端测试
 ```
 
+账号密码保存在系统安全存储中（Android Keystore / iOS Keychain / Linux libsecret），不会写入 `shared_preferences`。Linux 运行需要 `libsecret` 及可用的密钥环服务（GNOME Keyring / KWallet）；密钥环不可用时应用会提示重新登录，而不是把密码降级为明文保存。
+
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在推送到 `main`、向 `main` 提交 PR 或手动触发时运行：
