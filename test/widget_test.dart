@@ -263,4 +263,45 @@ void main() {
       expect(partial.ability, isNull);
     });
   });
+
+  group('登录历史解析', () {
+    test('解析 #logtable 表格', () {
+      const html = '''
+      <html><body>
+      <table id="logtable" width="100%">
+        <tr>
+          <td class="ct_text2">序号</td>
+          <td class="ct_text2">登录时间</td>
+          <td class="ct_text2">登录状态</td>
+          <td class="ct_text2">登录IP</td>
+          <td class="ct_text2">使用的密码</td>
+        </tr>
+        <tr>
+          <td class="ct_text3">1</td>
+          <td class="ct_text3">2026年10月25日 23:46:14</td>
+          <td><span class="ct_text5">成功</span></td>
+          <td class="ct_text3">39.157.117.139</td>
+          <td class="ct_text3">******</td>
+        </tr>
+        <tr>
+          <td class="ct_text3">2</td>
+          <td class="ct_text3">2026年10月24日 10:00:00</td>
+          <td><span class="ct_text5">失败</span></td>
+          <td class="ct_text3">10.0.0.1</td>
+          <td class="ct_text3">******</td>
+        </tr>
+      </table>
+      </body></html>
+      ''';
+      final entries = Parsers.parseLoginHistory(html);
+      expect(entries.length, 2);
+      expect(entries[0].sequence, 1);
+      expect(entries[0].time, '2026年10月25日 23:46:14');
+      expect(entries[0].status, '成功');
+      expect(entries[0].ip, '39.157.117.139');
+      expect(entries[0].isSuccess, isTrue);
+      expect(entries[1].status, '失败');
+      expect(entries[1].isSuccess, isFalse);
+    });
+  });
 }

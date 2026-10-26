@@ -546,3 +546,28 @@ class SubjectReport {
   /// 部分得分的小题数。
   int get partialCount => questions.length - fullMarkCount - zeroCount;
 }
+
+/// 一条网页版登录历史记录。
+class LoginLogEntry {
+  const LoginLogEntry({
+    this.sequence,
+    required this.time,
+    required this.status,
+    required this.ip,
+  });
+
+  /// 序号。
+  final int? sequence;
+
+  /// 登录时间（平台原样字符串，如「2026年10月25日 23:46:14」）。
+  final String time;
+
+  /// 登录状态，如「成功」「失败」。
+  final String status;
+
+  /// 登录 IP。
+  final String ip;
+
+  /// 是否登录成功。
+  bool get isSuccess => status.contains('成功');
+}

@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../services/xlf_client.dart';
 import 'about_screen.dart';
 import 'account_management_screen.dart';
+import 'login_history_screen.dart';
 import 'login_screen.dart';
 
 /// 账户页（底部导航第二个 Tab）。
@@ -40,6 +41,12 @@ class AccountScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _openHistory(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LoginHistoryScreen()),
+    );
+  }
+
   Future<void> _logout(BuildContext context) async {
     await XlfClient.instance.clearSession();
     if (!context.mounted) return;
@@ -52,6 +59,7 @@ class AccountScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     final schoolName = loginResult.schoolName.isNotEmpty
         ? loginResult.schoolName
         : (account.schoolName ?? '');
@@ -88,6 +96,27 @@ class AccountScreen extends StatelessWidget {
                       DateTime.fromMillisecondsSinceEpoch(account.lastLoginAt!),
                     ),
                   ),
+                const SizedBox(height: 6),
+                Divider(height: 1, color: scheme.outlineVariant),
+                const SizedBox(height: 4),
+                InkWell(
+                  onTap: () => _openHistory(context),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        Icon(Icons.history, size: 20, color: scheme.primary),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text('登录历史', style: textTheme.titleSmall),
+                        ),
+                        Icon(Icons.chevron_right,
+                            size: 20, color: scheme.onSurfaceVariant),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

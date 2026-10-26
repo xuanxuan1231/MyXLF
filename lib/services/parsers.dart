@@ -73,6 +73,28 @@ class Parsers {
         .toList();
   }
 
+  /// 解析网页版登录历史（`DemoAction.a?doShowLoginList` 的 #logtable 表格）。
+  static List<LoginLogEntry> parseLoginHistory(String html) {
+    final doc = html_parser.parse(html);
+    final table = doc.querySelector('#logtable');
+    if (table == null) return const [];
+
+    final entries = <LoginLogEntry>[];
+    for (final tr in table.querySelectorAll('tr')) {
+      final cells =
+          tr.querySelectorAll('td').map((td) => _clean(td.text)).toList();
+      if (cells.length < 4) continue;
+      if (cells[0] == '序号') continue; // 表头
+      entries.add(LoginLogEntry(
+        sequence: int.tryParse(cells[0]),
+        time: cells[1],
+        status: cells[2],
+        ip: cells[3],
+      ));
+    }
+    return entries;
+  }
+
   /// 解析总分分析报告（成绩单 + 综述 + 优势弱势科目 + 各科入口）。
   static TotalReport parseTotalReport(String html) {
     final doc = html_parser.parse(html);
