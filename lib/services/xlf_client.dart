@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
-import 'package:flutter/foundation.dart';
 
 import '../config.dart';
 import '../models/models.dart';
@@ -50,7 +50,7 @@ class XlfClient {
 
   static final XlfClient instance = XlfClient._();
 
-  late final Dio _dio;
+  late Dio _dio;
   final CookieJar _cookieJar = CookieJar();
 
   /// 当前登录账号（用于会话过期后静默重登）。
@@ -122,14 +122,57 @@ class XlfClient {
   /// 会话 Cookie 的作用范围（登录与业务请求都在同一主机）。
   static final Uri _cookieScope = Uri.parse(kBaseUrl);
 
+  /// 抓取 Cookie 快照时探测的地址。
+  ///
+  /// Cookie 按路径前缀匹配，只探测站点根地址（`/tqweb`）会漏掉
+  /// `Path=/tqweb/demo` 等更深路径下的 Cookie，因此逐个覆盖。
+  static final List<Uri> _cookieProbeScopes = [
+    _cookieScope,
+    Uri.parse(kLoginUrl),
+    Uri.parse(kHomeUrl),
+    Uri.parse(kStudentReportUrl),
+    Uri.parse(kSubjectReportUrl),
+  ];
+
+  /// 备份当前会话 Cookie（登录失败时回滚用）。
+  Future<List<Cookie>> _snapshotCookies() async {
+    final seen = <String>{};
+    final cookies = <Cookie>[];
+    for (final scope in _cookieProbeScopes) {
+      List<Cookie> found;
+      try {
+        found = await _cookieJar.loadForRequest(scope);
+      } catch (_) {
+        continue;
+      }
+      for (final cookie in found) {
+        // 同一 Cookie 可能被多个探测地址命中，按名称 / 域 / 路径去重。
+        if (seen.add('${cookie.name}|${cookie.domain}|${cookie.path}')) {
+          cookies.add(cookie);
+        }
+      }
+    }
+    return cookies;
+  }
+
   /// 恢复之前备份的会话 Cookie（登录失败回滚用）。
   Future<void> _restoreCookies(List<Cookie> cookies) async {
     if (cookies.isEmpty) return;
     try {
+      // 写入不受路径过滤，Cookie 自带的 domain / path 会原样保留。
       await _cookieJar.saveFromResponse(_cookieScope, cookies);
     } catch (_) {
       // 恢复失败时等同于未登录状态，由界面层的错误提示兜底。
     }
+  }
+
+  /// 记录账号锁定状态。
+  ///
+  /// 只对本机当前账号生效：切换到其他账号失败时不应污染当前会话的锁定标记。
+  void _noteLocked(String username, String message) {
+    if (_username != null && _username != username) return;
+    _lockedUsername = username;
+    _lockedMessage = message;
   }
 
   /// 判断响应是否为「会话过期」页面（登录页或提示页）。
@@ -282,7 +325,7 @@ class XlfClient {
 
   Future<LoginResult> _doLogin(String username, String password) async {
     // 备份当前会话 Cookie；登录失败时回滚，避免把当前账号的会话一起毁掉。
-    final previousCookies = await _cookieJar.loadForRequest(_cookieScope);
+    final previousCookies = await _snapshotCookies();
     await _clearCookies();
 
     try {
@@ -302,8 +345,7 @@ class XlfClient {
       final unitFailure = loginFailureFromUnit(unit);
       if (unitFailure != null) {
         if (unitFailure is XlfAccountLockedException) {
-          _lockedUsername = username;
-          _lockedMessage = unitFailure.message;
+          _noteLocked(username, unitFailure.message);
         }
         throw unitFailure;
       }
@@ -339,8 +381,7 @@ class XlfClient {
       final redirectFailure = loginFailureFromRedirect(location);
       if (redirectFailure != null) {
         if (redirectFailure is XlfAccountLockedException) {
-          _lockedUsername = username;
-          _lockedMessage = redirectFailure.message;
+          _noteLocked(username, redirectFailure.message);
         }
         throw redirectFailure;
       }
@@ -352,8 +393,7 @@ class XlfClient {
       );
       if (pageFailure != null) {
         if (pageFailure is XlfAccountLockedException) {
-          _lockedUsername = username;
-          _lockedMessage = pageFailure.message;
+          _noteLocked(username, pageFailure.message);
         }
         throw pageFailure;
       }
@@ -366,8 +406,7 @@ class XlfClient {
             loginFailureFromPage(home, location: homeResp.realUri.toString()) ??
             const XlfAuthException('登录失败，请检查账号密码');
         if (homeFailure is XlfAccountLockedException) {
-          _lockedUsername = username;
-          _lockedMessage = homeFailure.message;
+          _noteLocked(username, homeFailure.message);
         }
         throw homeFailure;
       }
@@ -528,11 +567,20 @@ class XlfClient {
       throw const XlfException('平台返回格式异常，请稍后重试');
     }
     final jsonStr = _jsToJson(text.substring(jsonStart, jsonEnd + 1));
-    final list = jsonDecode(jsonStr) as List;
-    return list.first as Map<String, dynamic>;
+    try {
+      final list = jsonDecode(jsonStr) as List;
+      return list.first as Map<String, dynamic>;
+    } catch (_) {
+      // DWR 的 JS 字面量可能包含尚未支持的写法（如 other 形式的 new Date），
+      // 统一转换为友好提示，避免把 FormatException 原文抛到界面上。
+      throw const XlfException('平台返回格式异常，请稍后重试');
+    }
   }
 
-  /// 将 JS 对象字面量（键不带引号）转为 JSON。
+  /// 将 JS 对象字面量（键不带引号、日期为 `new Date(毫秒)`）转为 JSON。
+  ///
+  /// DWR 会把日期序列化为 `new Date(1793191761000)`，键名不带引号，
+  /// 都需要先转换才能交给 [jsonDecode]。
   String _jsToJson(String js) => dwrJsToJson(js);
 
   String _randomId() {
@@ -702,11 +750,10 @@ class XlfClient {
   }
 }
 
-/// 将 DWR 返回的 JS 对象字面量转为可解析的 JSON（仅供测试与内部使用）。
+/// 将 DWR 返回的 JS 对象字面量转为可解析的 JSON。
 ///
 /// DWR 会把日期序列化为 `new Date(毫秒时间戳)`，键名不带引号，
 /// 都需要先转换才能交给 [jsonDecode]。
-@visibleForTesting
 String dwrJsToJson(String js) {
   // new Date(1793191761000) → 1793191761000
   final text = js.replaceAllMapped(
