@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/models.dart';
 import '../services/account_store.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import 'account_screen.dart';
 import 'home_screen.dart';
@@ -41,7 +42,10 @@ Future<void> enterShell(
     );
   }
   Navigator.of(context).pushAndRemoveUntil(
-    MaterialPageRoute(builder: (_) => MainShell(account: saved, loginResult: result)),
+    MaterialPageRoute(
+      builder: (_) => MainShell(account: saved, loginResult: result),
+      settings: const RouteSettings(name: 'Main Shell'),
+    ),
     (route) => false,
   );
 }
@@ -99,7 +103,11 @@ class _MainShellState extends State<MainShell> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        onDestinationSelected: (i) {
+          setState(() => _index = i);
+          // Tab 切换也计入页面浏览（$screen 事件）。
+          TelemetryService.instance.captureScreen(i == 0 ? 'Home' : 'Account');
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),

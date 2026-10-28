@@ -210,6 +210,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
           form: form,
           typical: typical,
         ),
+        settings: const RouteSettings(name: 'Answer Sheet'),
       ),
     );
   }

@@ -8,6 +8,7 @@ import 'about_screen.dart';
 import 'account_management_screen.dart';
 import 'login_history_screen.dart';
 import 'login_screen.dart';
+import 'privacy_settings_screen.dart';
 
 /// 账户页（底部导航第二个 Tab）。
 class AccountScreen extends StatelessWidget {
@@ -31,19 +32,35 @@ class AccountScreen extends StatelessWidget {
           onSwitchAccount: onSwitchAccount,
           onDefaultChanged: onDefaultChanged,
         ),
+        settings: const RouteSettings(name: 'Account Management'),
       ),
     );
   }
 
   Future<void> _openAbout(BuildContext context) async {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const AboutScreen()),
+      MaterialPageRoute(
+        builder: (_) => const AboutScreen(),
+        settings: const RouteSettings(name: 'About'),
+      ),
+    );
+  }
+
+  Future<void> _openPrivacy(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const PrivacySettingsScreen(),
+        settings: const RouteSettings(name: 'Privacy Settings'),
+      ),
     );
   }
 
   Future<void> _openHistory(BuildContext context) async {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const LoginHistoryScreen()),
+      MaterialPageRoute(
+        builder: (_) => const LoginHistoryScreen(),
+        settings: const RouteSettings(name: 'Login History'),
+      ),
     );
   }
 
@@ -51,7 +68,10 @@ class AccountScreen extends StatelessWidget {
     await XlfClient.instance.clearSession();
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      MaterialPageRoute(
+        builder: (_) => const LoginScreen(),
+        settings: const RouteSettings(name: 'Login'),
+      ),
       (route) => false,
     );
   }
@@ -133,6 +153,13 @@ class AccountScreen extends StatelessWidget {
             size: M3EButtonSize.md,
             icon: const Icon(Icons.info_outline),
             label: const Text('关于'),
+          ),
+          const SizedBox(height: 12),
+          M3EOutlinedButton.icon(
+            onPressed: () => _openPrivacy(context),
+            size: M3EButtonSize.md,
+            icon: const Icon(Icons.privacy_tip_outlined),
+            label: const Text('隐私与遥测'),
           ),
           const SizedBox(height: 12),
           M3EOutlinedButton.icon(

@@ -85,6 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (_) =>
             TotalReportScreen(testId: exam.testId, examName: exam.name),
+        settings: const RouteSettings(name: 'Total Report'),
       ),
     );
   }

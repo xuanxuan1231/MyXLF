@@ -60,6 +60,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
       MaterialPageRoute(
         builder: (_) =>
             SubjectReportScreen(link: link, examName: widget.examName),
+        settings: const RouteSettings(name: 'Subject Report'),
       ),
     );
   }

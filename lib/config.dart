@@ -37,3 +37,17 @@ const String kAccountInfoUrl = '$kBaseUrl/useradmin/ChangePasswordAction.a';
 const String kGithubOwner = 'xuanxuan1231';
 const String kGithubRepo = 'MyXLF';
 const String kGithubUrl = 'https://github.com/$kGithubOwner/$kGithubRepo';
+
+/// PostHog 遥测项目 API key（项目 token，可公开分发的客户端 key）。
+///
+/// debug / profile / release 三种构建共用同一项目，事件通过 `app_env`
+/// 属性区分环境。
+const String kPosthogApiKey = 'phc_sWRfhQKVLNn2YkrfhhR7CdSE3LCRYoLsns5oN9rSsaVr';
+
+/// PostHog 采集地址（美国云）。
+///
+/// 自建实例时改为自己的域名即可。
+const String kPosthogHost = 'https://us.i.posthog.com';
+
+/// PostHog 隐私说明（「隐私与遥测」设置页展示）。
+const String kPosthogPrivacyUrl = 'https://posthog.com/privacy';

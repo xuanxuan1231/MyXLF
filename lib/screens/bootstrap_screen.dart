@@ -3,9 +3,11 @@ import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../services/account_store.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import 'login_screen.dart';
 import 'main_shell.dart';
+import 'privacy_consent_screen.dart';
 
 /// 启动引导页：决定进入登录页还是自动登录默认账号。
 class BootstrapScreen extends StatefulWidget {
@@ -23,32 +25,42 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
   }
 
   Future<void> _init() async {
+    // 首次启动先展示「可选访问信息收集」说明页（在登录页之前），
+    // 用户确认后再进入登录页或主界面。
+    if (await TelemetryService.instance.needsConsent()) {
+      if (!mounted) return;
+      _goto(const PrivacyConsentScreen(), 'Privacy Consent');
+      return;
+    }
     final List<Account> accounts;
     try {
       accounts = await AccountStore.instance.load();
     } catch (e) {
       if (!mounted) return;
-      _goto(LoginScreen(initialError: '读取账号失败：$e'));
+      _goto(LoginScreen(initialError: '读取账号失败：$e'), 'Login');
       return;
     }
     if (!mounted) return;
     if (accounts.isEmpty) {
-      _goto(const LoginScreen());
+      _goto(const LoginScreen(), 'Login');
       return;
     }
     final defaultAccount = await AccountStore.instance.getDefault();
     if (!mounted) return;
     if (defaultAccount == null) {
-      _goto(const LoginScreen());
+      _goto(const LoginScreen(), 'Login');
       return;
     }
     if (defaultAccount.password.isEmpty) {
       // 安全存储不可用或数据被清理，无法自动登录；明确告知用户而不是
       // 用空密码去请求服务器（那样只会得到误导性的「密码错误」）。
       final storageError = AccountStore.instance.consumeLastError();
-      _goto(LoginScreen(
-        initialError: storageError ?? '无法读取已保存的密码，请重新登录',
-      ));
+      _goto(
+        LoginScreen(
+          initialError: storageError ?? '无法读取已保存的密码，请重新登录',
+        ),
+        'Login',
+      );
       return;
     }
     try {
@@ -58,14 +70,18 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       await enterShell(context, defaultAccount, result);
     } catch (e) {
       if (!mounted) return;
-      _goto(LoginScreen(initialError: e.toString()));
+      _goto(LoginScreen(initialError: e.toString()), 'Login');
     }
   }
 
-  void _goto(Widget screen) {
+  void _goto(Widget screen, String routeName) {
     if (!mounted) return;
-    Navigator.of(context)
-        .pushReplacement(MaterialPageRoute(builder: (_) => screen));
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => screen,
+        settings: RouteSettings(name: routeName),
+      ),
+    );
   }
 
   @override
