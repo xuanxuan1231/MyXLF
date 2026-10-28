@@ -34,6 +34,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   Future<void> _toggle(bool value) async {
     setState(() => _enabled = value);
     await TelemetryService.instance.setConsent(enabled: value);
+    if (value) await _loadDistinctId();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

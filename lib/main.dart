@@ -27,6 +27,7 @@ void main() {
         );
       };
       PlatformDispatcher.instance.onError = (error, stack) {
+        if (kDebugMode) debugPrint('未捕获的异步异常：$error\n$stack');
         unawaited(
           TelemetryService.instance.reportError(
             error,

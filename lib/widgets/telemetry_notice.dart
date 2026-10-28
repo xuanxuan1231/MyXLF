@@ -28,8 +28,8 @@ class TelemetryNotice extends StatelessWidget {
         _bullet(context, Icons.location_off_outlined, '精确位置、通讯录等设备隐私数据'),
         const SizedBox(height: 16),
         Text(
-          '统计服务由 PostHog 提供，仅用于改进应用与排查故障，'
-          '不用于广告，也不会分享给第三方。',
+          '统计服务由 PostHog 提供。数据仅用于改进应用和排查故障，'
+          '不用于广告或个性化营销，详情请参阅 PostHog 隐私政策。',
           style: textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
       ],
