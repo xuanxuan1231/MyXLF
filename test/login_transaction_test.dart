@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -34,11 +35,7 @@ void main() {
     );
 
     // 3. 身份没有被切走。
-    expect(
-      XlfClient.instance.currentUsername,
-      'A',
-      reason: '切换失败后必须仍是原账号',
-    );
+    expect(XlfClient.instance.currentUsername, 'A', reason: '切换失败后必须仍是原账号');
 
     // 4. 会话 Cookie 回滚为 A 的，后续请求照常可用。
     server.lastCookie = null;
@@ -101,6 +98,51 @@ void main() {
     expect(server.lastCookie, contains('JSESSIONID=B-ok'));
   });
 
+  test('登出会等进行中的登录结束，且最终保持登出状态', () async {
+    await XlfClient.instance.login('A', 'pass-A');
+    server.loginCookie = 'JSESSIONID=B-ok; Path=/';
+
+    // 让切换登录停在 DWR 请求上，模拟网络延迟。
+    final gate = Completer<void>();
+    server.gate = gate;
+    final switching = XlfClient.instance.login('B', 'pass-B');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    final logout = XlfClient.instance.clearSession();
+    gate.complete();
+    // 登出前已经发起的登录被作废，不会把身份写回来。
+    await expectLater(switching, throwsA(isA<XlfSessionExpiredException>()));
+    await logout;
+
+    expect(
+      XlfClient.instance.currentUsername,
+      isNull,
+      reason: '登出后不能因为更早发起的切换登录而重新变成已登录',
+    );
+    server.lastCookie = null;
+    await XlfClient.instance.fetchHomeHtml();
+    expect(server.lastCookie, isNull, reason: '登出后不应再携带会话 Cookie');
+  });
+
+  test('登出会作废仍在排队的登录', () async {
+    await XlfClient.instance.login('A', 'pass-A');
+
+    // B 正在请求，C 还在队列里等待。
+    final gate = Completer<void>();
+    server.gate = gate;
+    final first = XlfClient.instance.login('B', 'pass-B');
+    final second = XlfClient.instance.login('C', 'pass-C');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    final logout = XlfClient.instance.clearSession();
+    gate.complete();
+
+    await expectLater(first, throwsA(isA<XlfSessionExpiredException>()));
+    await expectLater(second, throwsA(isA<XlfSessionExpiredException>()));
+    await logout;
+    expect(XlfClient.instance.currentUsername, isNull);
+  });
+
   test('DWR 返回无法解析时给出友好提示而非 FormatException', () async {
     server.rawUnitReply = 'handleCallback("0","0",[{type:1,broken:});';
     await expectLater(
@@ -124,6 +166,9 @@ class _FakeServer implements HttpClientAdapter {
   String? rawUnitReply;
   String? lastCookie;
 
+  /// 非空时，DWR 校验请求会等待它完成（模拟慢网络）。
+  Completer<void>? gate;
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -131,8 +176,8 @@ class _FakeServer implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     final cookie = options.headers.entries
-        .where((e) => e.key.toLowerCase() == 'cookie')
-        .map((e) => e.value)
+        .where((e) => e.key.toLowerCase() == 'cookie' && e.value != null)
+        .map((e) => e.value.toString())
         .join('; ');
     if (cookie.isNotEmpty) lastCookie = cookie;
 
@@ -144,6 +189,7 @@ class _FakeServer implements HttpClientAdapter {
       return _text('handleCallback("0","0","session-1");');
     }
     if (url.contains('findUnitOrClassMessage')) {
+      if (gate != null) await gate!.future;
       if (rawUnitReply != null) return _text(rawUnitReply!);
       if (lockMessage != null) {
         return _text(

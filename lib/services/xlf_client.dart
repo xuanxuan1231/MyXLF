@@ -106,8 +106,18 @@ class XlfClient {
     _dio.interceptors.add(_SessionGuardInterceptor(this));
   }
 
+  /// 会话代数：每次登出自增。
+  ///
+  /// 登录在入队时记录当时的值，提交身份前比对；不一致说明期间已经登出，
+  /// 本次登录结果必须丢弃，否则会出现「界面已回到登录页但客户端仍处于登录状态」。
+  int _sessionGeneration = 0;
+
   /// 清空会话 Cookie（切换账号或退出时使用）。
   Future<void> clearSession() async {
+    // 立即作废所有在途 / 排队中的登录，避免它们完成后又把身份写回来。
+    _sessionGeneration++;
+    // 再等它们结束才清 Cookie：否则登录响应可能在清理之后又写入会话。
+    await _loginQueue;
     await _cookieJar.deleteAll();
     _username = null;
     _password = null;
@@ -333,12 +343,25 @@ class XlfClient {
   /// 登录失败不会影响当前账号：切换账号被拒绝时，
   /// 原会话 Cookie 会被完整恢复，数据抓取继续可用。
   Future<LoginResult> login(String username, String password) {
-    final future = _loginQueue.then((_) => _doLogin(username, password));
+    // 在入队时记录会话代数：排队期间若发生登出，本次登录必须作废。
+    final generation = _sessionGeneration;
+    final future = _loginQueue.then(
+      (_) => _doLogin(username, password, generation),
+    );
     _loginQueue = future.then<void>((_) {}, onError: (_) {});
     return future;
   }
 
-  Future<LoginResult> _doLogin(String username, String password) async {
+  Future<LoginResult> _doLogin(
+    String username,
+    String password,
+    int generation,
+  ) async {
+    // 入队后已被登出：直接放弃，不触碰当前会话。
+    if (generation != _sessionGeneration) {
+      throw const XlfSessionExpiredException();
+    }
+
     // 备份当前会话 Cookie；登录失败时回滚，避免把当前账号的会话一起毁掉。
     final previousCookies = await _snapshotCookies();
     await _clearCookies();
@@ -426,6 +449,12 @@ class XlfClient {
         throw homeFailure;
       }
 
+      // 登录期间发生了登出：放弃本次结果（此时 Cookie 是新登录的，
+      // 但身份已被 clearSession 清空，不能再写回去）。
+      if (generation != _sessionGeneration) {
+        throw const XlfSessionExpiredException();
+      }
+
       _username = username;
       _password = password;
       _lockedUsername = null;
@@ -442,7 +471,10 @@ class XlfClient {
       );
     } catch (e) {
       // 登录失败：回滚会话 Cookie，当前账号不受影响。
-      await _restoreCookies(previousCookies);
+      // 若期间已登出，则不能回滚（那会把刚清掉的会话又恢复出来）。
+      if (generation == _sessionGeneration) {
+        await _restoreCookies(previousCookies);
+      }
       rethrow;
     }
   }
@@ -768,16 +800,119 @@ class XlfClient {
 
 /// 将 DWR 返回的 JS 对象字面量转为可解析的 JSON。
 ///
-/// DWR 会把日期序列化为 `new Date(毫秒时间戳)`，键名不带引号，
-/// 都需要先转换才能交给 [jsonDecode]。
+/// DWR 的输出不是合法 JSON：键名不带引号、日期被写成
+/// `new Date(毫秒时间戳)`、字符串可能使用单引号、值可能为 `undefined`。
+///
+/// 这里用逐字符扫描而不是正则替换：字符串字面量会被整体拷贝，
+/// 因此学校名等文本里即使出现 `, type:` 之类的形态也不会被误当成对象键。
 String dwrJsToJson(String js) {
-  // new Date(1793191761000) → 1793191761000
-  final text = js.replaceAllMapped(
-    RegExp(r'new Date\((-?\d+)\)'),
-    (m) => m[1]!,
-  );
-  final re = RegExp(r'([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)');
-  return text.replaceAllMapped(re, (m) => '${m[1]}"${m[2]}"${m[3]}');
+  final out = StringBuffer();
+  var i = 0;
+  while (i < js.length) {
+    final ch = js[i];
+
+    // 字符串字面量：整体转换，内部内容不参与键名识别。
+    if (ch == '"' || ch == "'") {
+      i = _writeJsString(js, i, out);
+      continue;
+    }
+
+    // new Date(1793191761000) → 1793191761000
+    if (ch == 'n') {
+      final date = _jsDatePattern.matchAsPrefix(js, i);
+      if (date != null) {
+        out.write(date.group(1));
+        i = date.end;
+        continue;
+      }
+    }
+
+    // 数字字面量：整体拷贝，避免科学计数法中的 e 被当成标识符。
+    if (ch == '-' || _jsDigit.hasMatch(ch)) {
+      final number = _jsNumberPattern.matchAsPrefix(js, i);
+      if (number != null) {
+        out.write(number.group(0));
+        i = number.end;
+        continue;
+      }
+    }
+
+    // 裸标识符：可能是对象键，也可能是 true / false / null / undefined。
+    if (_jsIdentStart.hasMatch(ch)) {
+      var end = i + 1;
+      while (end < js.length && _jsIdentPart.hasMatch(js[end])) {
+        end++;
+      }
+      final word = js.substring(i, end);
+      final next = _skipJsSpace(js, end);
+      if (next != null && js[next] == ':') {
+        out.write('"$word"'); // 对象键
+      } else if (word == 'undefined' || word == 'NaN' || word == 'Infinity') {
+        out.write('null');
+      } else if (word == 'true' || word == 'false' || word == 'null') {
+        out.write(word);
+      } else {
+        // DWR 偶尔返回不带引号的字符串值，按字符串处理。
+        out.write('"$word"');
+      }
+      i = end;
+      continue;
+    }
+
+    out.write(ch);
+    i++;
+  }
+  return out.toString();
+}
+
+final RegExp _jsDatePattern = RegExp(r'new\s+Date\s*\(\s*(-?\d+)\s*\)');
+final RegExp _jsNumberPattern = RegExp(
+  r'-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?',
+);
+final RegExp _jsDigit = RegExp(r'\d');
+final RegExp _jsIdentStart = RegExp(r'[A-Za-z_$]');
+final RegExp _jsIdentPart = RegExp(r'[A-Za-z0-9_$]');
+
+/// 返回 [index] 之后第一个非空白字符的位置。
+int? _skipJsSpace(String js, int index) {
+  var i = index;
+  while (i < js.length && js[i].trim().isEmpty) {
+    i++;
+  }
+  return i < js.length ? i : null;
+}
+
+/// 将 [start] 处的 JS 字符串字面量写入 [out]，返回字面量之后的位置。
+int _writeJsString(String js, int start, StringBuffer out) {
+  final quote = js[start];
+  out.write('"');
+  var i = start + 1;
+  while (i < js.length) {
+    final ch = js[i];
+    if (ch == r'\') {
+      if (i + 1 >= js.length) break;
+      final escaped = js[i + 1];
+      if (escaped == quote) {
+        // JS 允许转义引号；JSON 只接受 \"，其余引号需去掉反斜杠。
+        out.write(escaped == '"' ? r'\"' : "'");
+      } else {
+        out.write('\\');
+        out.write(escaped);
+      }
+      i += 2;
+      continue;
+    }
+    if (ch == quote) {
+      out.write('"');
+      return i + 1;
+    }
+    // 单引号字符串里的双引号需要转义，才能成为合法的 JSON 字符串。
+    out.write(ch == '"' ? r'\"' : ch);
+    i++;
+  }
+  // 未闭合的字符串：补上引号，交给 jsonDecode 统一报错。
+  out.write('"');
+  return js.length;
 }
 
 /// 会话守卫拦截器：检测会话过期，自动恢复后重试一次原请求。

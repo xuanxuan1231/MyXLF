@@ -120,7 +120,8 @@ void main() {
 
   group('DWR 返回解析', () {
     test('new Date(...) 时间戳不再导致解析崩溃', () {
-      const raw = '[{attemptTimes:0,classId:97671,className:"高一（1）班",'
+      const raw =
+          '[{attemptTimes:0,classId:97671,className:"高一（1）班",'
           'clsssDtoList:[],errorMessage:null,ifLocked:true,loadDatetime:null,'
           'lockTime:new Date(1793191761000),password:"hash",schoolId:3600,'
           'schoolName:"测试中学",type:1,unlockCode:"unlock-code",userId:4922347}]';
@@ -136,6 +137,47 @@ void main() {
       final list = jsonDecode(dwrJsToJson(raw)) as List;
       final unit = list.first as Map<String, dynamic>;
       expect(loginFailureFromUnit(unit), isA<XlfAuthException>());
+    });
+
+    test('字符串里的对象形态不会被误当成键', () {
+      // 学校名本身包含类似对象的文本：正则替换会把 "fake"、"type" 也加上引号。
+      const raw =
+          '[{type:1,schoolName:"某某中学, type:2 {fake:true}",'
+          'className:"高一（1）班"}]';
+      final unit =
+          (jsonDecode(dwrJsToJson(raw)) as List).first as Map<String, dynamic>;
+      expect(unit['schoolName'], '某某中学, type:2 {fake:true}');
+      expect(unit['className'], '高一（1）班');
+      expect(unit['type'], 1);
+    });
+
+    test('单引号字符串与转义引号', () {
+      const raw = r'''[{type:1,schoolName:'Tom\'s "School"',className:'高一'}]''';
+      final unit =
+          (jsonDecode(dwrJsToJson(raw)) as List).first as Map<String, dynamic>;
+      expect(unit['schoolName'], 'Tom\'s "School"');
+      expect(unit['className'], '高一');
+    });
+
+    test('嵌套结构、undefined 与日期同时出现', () {
+      const raw =
+          '[{type:1,loadDatetime:undefined,lockTime:new Date(-1),'
+          'clsssDtoList:[{id:1,name:"甲"}],ok:true,miss:null}]';
+      final unit =
+          (jsonDecode(dwrJsToJson(raw)) as List).first as Map<String, dynamic>;
+      expect(unit['loadDatetime'], isNull);
+      expect(unit['lockTime'], -1);
+      expect(unit['ok'], isTrue);
+      expect(unit['miss'], isNull);
+      expect((unit['clsssDtoList'] as List).first, {'id': 1, 'name': '甲'});
+    });
+
+    test('科学计数法数字保持为数字', () {
+      const raw = '[{type:1,score:1.5e3,delta:-2E-2}]';
+      final unit =
+          (jsonDecode(dwrJsToJson(raw)) as List).first as Map<String, dynamic>;
+      expect(unit['score'], 1500);
+      expect(unit['delta'], -0.02);
     });
   });
 
