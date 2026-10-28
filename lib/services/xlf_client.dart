@@ -192,10 +192,25 @@ class XlfClient {
     });
   }
 
+  /// 成功登录的次数，用于识别「恢复会话期间账号已被切换」。
+  int _loginEpoch = 0;
+
   Future<XlfException?> _doRecoverSession() async {
     final username = _username;
     final storedPassword = _password;
     if (username == null || storedPassword == null) {
+      return const XlfSessionExpiredException();
+    }
+    final epoch = _loginEpoch;
+
+    // 有登录正在进行（例如用户主动切换账号）时先等它结束，
+    // 否则旧账号的恢复会把刚切好的新账号又换回去。
+    await _loginQueue;
+    if (_loginEpoch != epoch) {
+      // 期间登录成功（含切换账号）：当前会话已是新的，直接重试原请求。
+      return null;
+    }
+    if (_username != username || _password != storedPassword) {
       return const XlfSessionExpiredException();
     }
 
@@ -416,6 +431,7 @@ class XlfClient {
       _lockedUsername = null;
       _lockedMessage = null;
       _credentialsRejected = false;
+      _loginEpoch++;
 
       return LoginResult(
         schoolName: schoolName,

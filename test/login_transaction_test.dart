@@ -80,6 +80,27 @@ void main() {
     expect(home, isNot(contains('login.jsp')));
   });
 
+  test('切换账号期间触发的会话恢复不会把账号换回去', () async {
+    await XlfClient.instance.login('A', 'pass-A');
+
+    server.loginCookie = 'JSESSIONID=B-ok; Path=/';
+    // 切换到 B 的同时，旧账号的请求触发了会话恢复。
+    final switching = XlfClient.instance.login('B', 'pass-B');
+    final recovery = XlfClient.instance.relogin();
+
+    await switching;
+    await recovery;
+
+    expect(
+      XlfClient.instance.currentUsername,
+      'B',
+      reason: '恢复流程属于旧账号，不能覆盖刚完成切换的新账号',
+    );
+    server.lastCookie = null;
+    await XlfClient.instance.fetchHomeHtml();
+    expect(server.lastCookie, contains('JSESSIONID=B-ok'));
+  });
+
   test('DWR 返回无法解析时给出友好提示而非 FormatException', () async {
     server.rawUnitReply = 'handleCallback("0","0",[{type:1,broken:});';
     await expectLater(
