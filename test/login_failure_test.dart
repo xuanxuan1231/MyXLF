@@ -1,9 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:xlf/models/models.dart';
 import 'package:xlf/services/account_store.dart';
-import 'package:xlf/services/xlf_exceptions.dart';
+import 'package:xlf/services/xlf_client.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -31,13 +33,44 @@ void main() {
       expect(failure!.message, '用户名或密码错误。');
     });
 
-    test('lockTime 有值视为账号锁定', () {
+    test('lockTime 有值且无提示时按锁定处理', () {
       final failure = loginFailureFromUnit({
         'type': 0,
         'lockTime': '2026-10-28 10:00:00',
       });
       expect(failure, isA<XlfAccountLockedException>());
       expect(failure!.message, kAccountLockedMessage);
+    });
+
+    test('type=1 的锁定记录不影响有效登录（真实返回形状）', () {
+      // 平台在密码正确时返回 type=1，即使账号存在历史锁定记录（lockTime）。
+      final failure = loginFailureFromUnit({
+        'attemptTimes': 0,
+        'classId': 97671,
+        'className': '高一（1）班',
+        'clsssDtoList': [],
+        'errorMessage': null,
+        'ifLocked': true,
+        'loadDatetime': null,
+        'lockTime': 1793191761000,
+        'schoolId': 3600,
+        'schoolName': '测试中学',
+        'type': 1,
+        'unlockCode': 'unlock-code',
+        'userId': 4922347,
+      });
+      expect(failure, isNull);
+    });
+
+    test('密码错误的提示优先于过期的锁定记录', () {
+      final failure = loginFailureFromUnit({
+        'type': 0,
+        'lockTime': 1793191761000,
+        'errorMessage': '用户名或密码错误。',
+      });
+      expect(failure, isA<XlfAuthException>());
+      expect(failure, isNot(isA<XlfAccountLockedException>()));
+      expect(failure!.message, '用户名或密码错误。');
     });
 
     test('平台返回锁定文案时保留具体提示，且不泄露解锁码', () {
@@ -82,6 +115,27 @@ void main() {
         loginPageErrorMessage('<span id="errorMesssage"> null</span>'),
         isNull,
       );
+    });
+  });
+
+  group('DWR 返回解析', () {
+    test('new Date(...) 时间戳不再导致解析崩溃', () {
+      const raw = '[{attemptTimes:0,classId:97671,className:"高一（1）班",'
+          'clsssDtoList:[],errorMessage:null,ifLocked:true,loadDatetime:null,'
+          'lockTime:new Date(1793191761000),password:"hash",schoolId:3600,'
+          'schoolName:"测试中学",type:1,unlockCode:"unlock-code",userId:4922347}]';
+      final list = jsonDecode(dwrJsToJson(raw)) as List;
+      final unit = list.first as Map<String, dynamic>;
+      expect(unit['lockTime'], 1793191761000);
+      expect(unit['type'], 1);
+      expect(loginFailureFromUnit(unit), isNull);
+    });
+
+    test('无时间戳的普通返回保持兼容', () {
+      const raw = '[{type:0,errorMessage:"用户名或密码错误。",lockTime:null}]';
+      final list = jsonDecode(dwrJsToJson(raw)) as List;
+      final unit = list.first as Map<String, dynamic>;
+      expect(loginFailureFromUnit(unit), isA<XlfAuthException>());
     });
   });
 

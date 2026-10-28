@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
+import 'package:flutter/foundation.dart';
 
 import '../config.dart';
 import '../models/models.dart';
@@ -118,6 +118,19 @@ class XlfClient {
 
   /// 清除 Cookie，但保留当前账号身份，供 [login] 重新认证使用。
   Future<void> _clearCookies() => _cookieJar.deleteAll();
+
+  /// 会话 Cookie 的作用范围（登录与业务请求都在同一主机）。
+  static final Uri _cookieScope = Uri.parse(kBaseUrl);
+
+  /// 恢复之前备份的会话 Cookie（登录失败回滚用）。
+  Future<void> _restoreCookies(List<Cookie> cookies) async {
+    if (cookies.isEmpty) return;
+    try {
+      await _cookieJar.saveFromResponse(_cookieScope, cookies);
+    } catch (_) {
+      // 恢复失败时等同于未登录状态，由界面层的错误提示兜底。
+    }
+  }
 
   /// 判断响应是否为「会话过期」页面（登录页或提示页）。
   bool _isSessionExpired(Response response) {
@@ -253,109 +266,130 @@ class XlfClient {
   // 登录
   // ---------------------------------------------------------------------------
 
+  /// 登录请求队列：「切换账号」与「会话恢复」都可能触发登录，
+  /// 串行执行避免并发登录互相覆盖 Cookie 与账号身份。
+  Future<void> _loginQueue = Future<void>.value();
+
   /// 登录。成功返回用户基本信息；失败抛出 [XlfException]。
-  Future<LoginResult> login(String username, String password) async {
+  ///
+  /// 登录失败不会影响当前账号：切换账号被拒绝时，
+  /// 原会话 Cookie 会被完整恢复，数据抓取继续可用。
+  Future<LoginResult> login(String username, String password) {
+    final future = _loginQueue.then((_) => _doLogin(username, password));
+    _loginQueue = future.then<void>((_) {}, onError: (_) {});
+    return future;
+  }
+
+  Future<LoginResult> _doLogin(String username, String password) async {
+    // 备份当前会话 Cookie；登录失败时回滚，避免把当前账号的会话一起毁掉。
+    final previousCookies = await _cookieJar.loadForRequest(_cookieScope);
     await _clearCookies();
 
-    // 1. 访问登录页，建立会话（拿到 JSESSIONID / DWRSESSIONID）。
-    await _get('/login.jsp', loginRequest: true);
+    try {
+      // 1. 访问登录页，建立会话（拿到 JSESSIONID / DWRSESSIONID）。
+      await _get('/login.jsp', loginRequest: true);
 
-    // 2. AES 加密用户名密码。
-    final encName = AesCrypto.instance.encrypt(username);
-    final encPass = AesCrypto.instance.encrypt(password);
+      // 2. AES 加密用户名密码。
+      final encName = AesCrypto.instance.encrypt(username);
+      final encPass = AesCrypto.instance.encrypt(password);
 
-    // 3. 通过 DWR 查询学校/班级信息（同时校验账号密码）。
-    final unit = await _dwrFindUnitOrClass(
-      encName,
-      encPass,
-      loginRequest: true,
-    );
-    final unitFailure = loginFailureFromUnit(unit);
-    if (unitFailure != null) {
-      if (unitFailure is XlfAccountLockedException) {
-        _lockedUsername = username;
-        _lockedMessage = unitFailure.message;
+      // 3. 通过 DWR 查询学校/班级信息（同时校验账号密码）。
+      final unit = await _dwrFindUnitOrClass(
+        encName,
+        encPass,
+        loginRequest: true,
+      );
+      final unitFailure = loginFailureFromUnit(unit);
+      if (unitFailure != null) {
+        if (unitFailure is XlfAccountLockedException) {
+          _lockedUsername = username;
+          _lockedMessage = unitFailure.message;
+        }
+        throw unitFailure;
       }
-      throw unitFailure;
-    }
 
-    final schoolId = (unit['schoolId'] as num?)?.toString() ?? '';
-    final classId = (unit['classId'] as num?)?.toString() ?? '';
-    final userId = (unit['userId'] as num?)?.toString() ?? '';
-    final schoolName = (unit['schoolName'] as String?) ?? '';
-    final className = (unit['className'] as String?) ?? '';
+      final schoolId = (unit['schoolId'] as num?)?.toString() ?? '';
+      final classId = (unit['classId'] as num?)?.toString() ?? '';
+      final userId = (unit['userId'] as num?)?.toString() ?? '';
+      final schoolName = (unit['schoolName'] as String?) ?? '';
+      final className = (unit['className'] as String?) ?? '';
 
-    // 4. 提交登录表单（Acegi），成功后重定向到首页。
-    final resp = await _postForm(
-      kLoginCheckUrl,
-      {
-        'j_username': encName,
-        'j_password': encPass,
-        'authType': kStudentAuthType,
-        'schoolId': schoolId,
-        'classId': classId,
-        'isLogin': '1',
-        'ifsecond': '2',
-        'loginNum': '0',
-        'ifChangeSelectSchool': '1',
-        'validCheckCode': '0',
-        'pass': '',
-        'ifSave': '1',
-      },
-      followRedirects: false,
-      loginRequest: true,
-    );
+      // 4. 提交登录表单（Acegi），成功后重定向到首页。
+      final resp = await _postForm(
+        kLoginCheckUrl,
+        {
+          'j_username': encName,
+          'j_password': encPass,
+          'authType': kStudentAuthType,
+          'schoolId': schoolId,
+          'classId': classId,
+          'isLogin': '1',
+          'ifsecond': '2',
+          'loginNum': '0',
+          'ifChangeSelectSchool': '1',
+          'validCheckCode': '0',
+          'pass': '',
+          'ifSave': '1',
+        },
+        followRedirects: false,
+        loginRequest: true,
+      );
 
-    final location = resp.headers.value('location') ?? '';
-    final redirectFailure = loginFailureFromRedirect(location);
-    if (redirectFailure != null) {
-      if (redirectFailure is XlfAccountLockedException) {
-        _lockedUsername = username;
-        _lockedMessage = redirectFailure.message;
+      final location = resp.headers.value('location') ?? '';
+      final redirectFailure = loginFailureFromRedirect(location);
+      if (redirectFailure != null) {
+        if (redirectFailure is XlfAccountLockedException) {
+          _lockedUsername = username;
+          _lockedMessage = redirectFailure.message;
+        }
+        throw redirectFailure;
       }
-      throw redirectFailure;
-    }
 
-    // 某些锁定 / 错误会以 200 的登录页 + 红色错误提示返回。
-    final pageFailure = loginFailureFromPage(
-      resp.data?.toString() ?? '',
-      location: location,
-    );
-    if (pageFailure != null) {
-      if (pageFailure is XlfAccountLockedException) {
-        _lockedUsername = username;
-        _lockedMessage = pageFailure.message;
+      // 某些锁定 / 错误会以 200 的登录页 + 红色错误提示返回。
+      final pageFailure = loginFailureFromPage(
+        resp.data?.toString() ?? '',
+        location: location,
+      );
+      if (pageFailure != null) {
+        if (pageFailure is XlfAccountLockedException) {
+          _lockedUsername = username;
+          _lockedMessage = pageFailure.message;
+        }
+        throw pageFailure;
       }
-      throw pageFailure;
-    }
 
-    // 5. 登录成功后访问首页，确认会话有效并拿到考试列表入口。
-    final homeResp = await _getResponse(kHomeUrl, loginRequest: true);
-    final home = homeResp.data.toString();
-    if (home.contains('login.jsp')) {
-      final homeFailure =
-          loginFailureFromPage(home, location: homeResp.realUri.toString()) ??
-          const XlfAuthException('登录失败，请检查账号密码');
-      if (homeFailure is XlfAccountLockedException) {
-        _lockedUsername = username;
-        _lockedMessage = homeFailure.message;
+      // 5. 登录成功后访问首页，确认会话有效并拿到考试列表入口。
+      final homeResp = await _getResponse(kHomeUrl, loginRequest: true);
+      final home = homeResp.data.toString();
+      if (home.contains('login.jsp')) {
+        final homeFailure =
+            loginFailureFromPage(home, location: homeResp.realUri.toString()) ??
+            const XlfAuthException('登录失败，请检查账号密码');
+        if (homeFailure is XlfAccountLockedException) {
+          _lockedUsername = username;
+          _lockedMessage = homeFailure.message;
+        }
+        throw homeFailure;
       }
-      throw homeFailure;
+
+      _username = username;
+      _password = password;
+      _lockedUsername = null;
+      _lockedMessage = null;
+      _credentialsRejected = false;
+
+      return LoginResult(
+        schoolName: schoolName,
+        className: className,
+        userId: userId,
+        schoolId: schoolId,
+        classId: classId,
+      );
+    } catch (e) {
+      // 登录失败：回滚会话 Cookie，当前账号不受影响。
+      await _restoreCookies(previousCookies);
+      rethrow;
     }
-
-    _username = username;
-    _password = password;
-    _lockedUsername = null;
-    _lockedMessage = null;
-    _credentialsRejected = false;
-
-    return LoginResult(
-      schoolName: schoolName,
-      className: className,
-      userId: userId,
-      schoolId: schoolId,
-      classId: classId,
-    );
   }
 
   /// DWR 调用：查询用户学校/班级信息。
@@ -499,10 +533,7 @@ class XlfClient {
   }
 
   /// 将 JS 对象字面量（键不带引号）转为 JSON。
-  String _jsToJson(String js) {
-    final re = RegExp(r'([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)');
-    return js.replaceAllMapped(re, (m) => '${m[1]}"${m[2]}"${m[3]}');
-  }
+  String _jsToJson(String js) => dwrJsToJson(js);
 
   String _randomId() {
     final r = Random();
@@ -669,6 +700,21 @@ class XlfClient {
       ),
     );
   }
+}
+
+/// 将 DWR 返回的 JS 对象字面量转为可解析的 JSON（仅供测试与内部使用）。
+///
+/// DWR 会把日期序列化为 `new Date(毫秒时间戳)`，键名不带引号，
+/// 都需要先转换才能交给 [jsonDecode]。
+@visibleForTesting
+String dwrJsToJson(String js) {
+  // new Date(1793191761000) → 1793191761000
+  final text = js.replaceAllMapped(
+    RegExp(r'new Date\((-?\d+)\)'),
+    (m) => m[1]!,
+  );
+  final re = RegExp(r'([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)');
+  return text.replaceAllMapped(re, (m) => '${m[1]}"${m[2]}"${m[3]}');
 }
 
 /// 会话守卫拦截器：检测会话过期，自动恢复后重试一次原请求。

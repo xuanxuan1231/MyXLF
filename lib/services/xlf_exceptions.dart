@@ -72,8 +72,11 @@ String _cleanHtmlText(String text) {
 
 /// 根据 DWR `findUnitOrClassMessage` 的返回对象判断登录失败原因。
 ///
-/// 返回 null 表示用户名密码正确。注意：[ifLocked] 只是平台的锁定功能开关，
-/// 测试账号即使返回 true 也能正常登录，不能单独作为锁定依据。
+/// 返回 null 表示用户名密码正确（`type == 1`）。注意：
+/// - [lockTime] 只是平台的锁定记录，可能早已过期，密码正确时不能据此判定锁定；
+/// - `ifLocked` 只是平台的锁定功能开关，测试账号即使返回 true 也能正常登录。
+/// 真正的锁定拦截发生在登录表单阶段，由 [loginFailureFromRedirect] /
+/// [loginFailureFromPage] 兜底。
 XlfException? loginFailureFromUnit(Map<String, dynamic> unit) {
   final type = unit['type'];
   final errorText = (unit['errorMessage'] as String?)?.trim();
@@ -83,12 +86,14 @@ XlfException? loginFailureFromUnit(Map<String, dynamic> unit) {
   final messageSaysLocked =
       errorText != null && errorText.isNotEmpty && _looksLocked(errorText);
 
-  if (hasLockTime || messageSaysLocked) {
-    return XlfAccountLockedException(
-      messageSaysLocked ? errorText : kAccountLockedMessage,
-    );
-  }
   if (type == 1) return null;
+  if (messageSaysLocked) {
+    return XlfAccountLockedException(errorText);
+  }
+  if (hasLockTime && (errorText == null || errorText.isEmpty)) {
+    // 没有任何提示但存在锁定记录：按锁定处理更稳妥。
+    return const XlfAccountLockedException();
+  }
   return XlfAuthException(
     errorText != null && errorText.isNotEmpty ? errorText : '用户名或密码错误',
   );

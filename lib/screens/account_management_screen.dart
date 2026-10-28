@@ -64,11 +64,19 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       );
       return;
     }
+    // 加载框只允许关闭一次，避免误弹掉下层页面。
+    var loadingOpen = true;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => const Center(child: M3ECircularProgressIndicator()),
     );
+    void closeLoading() {
+      if (!loadingOpen) return;
+      loadingOpen = false;
+      Navigator.of(context).pop();
+    }
+
     try {
       final result = await XlfClient.instance.login(
         account.username,
@@ -87,7 +95,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       await AccountStore.instance.addOrUpdate(fresh);
       final storageError = AccountStore.instance.consumeLastError();
       if (!mounted) return;
-      Navigator.of(context).pop(); // 关闭加载框
+      closeLoading(); // 关闭加载框
       if (storageError != null) {
         scaffold.showSnackBar(
           SnackBar(
@@ -97,17 +105,19 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
         );
       }
       widget.onSwitchAccount(fresh, result);
+      if (!mounted) return;
       Navigator.of(context).pop(); // 返回主界面
     } on XlfAccountLockedException catch (e) {
       if (!mounted) return;
-      Navigator.of(context).pop(); // 关闭加载框
+      closeLoading();
       await showAccountLockedDialog(e.message);
     } catch (e) {
+      // 凭据失效等情况：拒绝切换，停留在本页，当前账号与会话不受影响。
       if (!mounted) return;
-      Navigator.of(context).pop();
+      closeLoading();
       scaffold.showSnackBar(
         SnackBar(
-          content: Text(e.toString()),
+          content: Text(e is XlfException ? e.message : '切换账号失败，请稍后重试'),
           behavior: SnackBarBehavior.floating,
         ),
       );
