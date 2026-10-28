@@ -12,6 +12,9 @@ import '../config.dart';
 import '../models/models.dart';
 import 'aes_crypto.dart';
 import 'parsers.dart';
+import 'xlf_exceptions.dart';
+
+export 'xlf_exceptions.dart';
 
 /// 登录结果（含平台返回的用户基本信息）。
 class LoginResult {
@@ -30,15 +33,16 @@ class LoginResult {
   final String classId;
 }
 
-/// 平台访问异常（含面向用户的提示文案）。
-class XlfException implements Exception {
-  XlfException(this.message);
+/// 校验用户重新输入的密码；返回一次校验结果。
+typedef XlfReauthVerifier = Future<XlfReauthResult> Function(String password);
 
-  final String message;
+/// 会话过期后的交互式重新登录入口（由界面层注入）。
+typedef XlfReauthPrompt =
+    Future<bool> Function(String username, XlfReauthVerifier verify);
 
-  @override
-  String toString() => message;
-}
+/// 重新登录成功后保存新密码（由界面层注入）。
+typedef XlfCredentialsRefreshed =
+    Future<void> Function(String username, String password);
 
 /// MyXLF 客户端：负责登录、会话保持与页面抓取。
 class XlfClient {
@@ -53,24 +57,42 @@ class XlfClient {
   String? _username;
   String? _password;
 
-  /// 标记正在执行登录流程，避免会话守卫把登录页误判为「会话过期」。
-  bool _inLoginFlow = false;
+  /// 会话恢复的并发合并：多个过期请求共享同一次恢复结果。
+  Future<XlfException?>? _sessionRecoveryFuture;
 
-  /// 静默重登的并发合并：多个过期请求共享同一次重登结果。
-  Future<bool>? _reloginFuture;
+  /// 已确认被锁定的账号，避免反复自动尝试登录。显式登录成功后会清除。
+  String? _lockedUsername;
+  String? _lockedMessage;
+
+  /// 保存的密码已被平台拒绝后，不要继续拿它自动重登，直接询问用户。
+  bool _credentialsRejected = false;
+
+  /// 会话过期时弹出「重新登录」对话框；未注入时只能提示登录失效。
+  XlfReauthPrompt? reauthPrompt;
+
+  /// 账号被锁定时展示明确提示；未注入时静默处理。
+  Future<void> Function(String message)? accountLockedNotice;
+
+  /// 用户重新登录成功后写回安全存储。
+  XlfCredentialsRefreshed? onCredentialsRefreshed;
 
   Dio get dio => _dio;
 
-  /// 初始化（可重复调用以重置会话）。
+  /// 当前登录账号。
+  String? get currentUsername => _username;
+
+  /// 初始化（可重复调用以重置网络层）。
   void init() {
-    _dio = Dio(BaseOptions(
-      baseUrl: kBaseUrl,
-      connectTimeout: const Duration(seconds: 20),
-      receiveTimeout: const Duration(seconds: 30),
-      followRedirects: true,
-      // 测试服务器为自签名证书，需要忽略证书校验。
-      validateStatus: (status) => status != null && status < 500,
-    ));
+    _dio = Dio(
+      BaseOptions(
+        baseUrl: kBaseUrl,
+        connectTimeout: const Duration(seconds: 20),
+        receiveTimeout: const Duration(seconds: 30),
+        followRedirects: true,
+        // 测试服务器为自签名证书，需要忽略证书校验。
+        validateStatus: (status) => status != null && status < 500,
+      ),
+    );
 
     // 忽略自签名证书（仅测试环境）。
     (_dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
@@ -89,7 +111,13 @@ class XlfClient {
     await _cookieJar.deleteAll();
     _username = null;
     _password = null;
+    _lockedUsername = null;
+    _lockedMessage = null;
+    _credentialsRejected = false;
   }
+
+  /// 清除 Cookie，但保留当前账号身份，供 [login] 重新认证使用。
+  Future<void> _clearCookies() => _cookieJar.deleteAll();
 
   /// 判断响应是否为「会话过期」页面（登录页或提示页）。
   bool _isSessionExpired(Response response) {
@@ -101,36 +129,124 @@ class XlfClient {
     return false;
   }
 
-  /// 会话过期后静默重登；并发请求共享同一次重登结果。
-  Future<bool> _reloginSilently() {
-    return _reloginFuture ??= _doRelogin().whenComplete(() {
-      _reloginFuture = null;
+  /// 会话过期后自动恢复；并发请求共享同一次恢复结果。
+  Future<XlfException?> _recoverSession() {
+    return _sessionRecoveryFuture ??= _doRecoverSession().whenComplete(() {
+      _sessionRecoveryFuture = null;
     });
   }
 
-  Future<bool> _doRelogin() async {
+  Future<XlfException?> _doRecoverSession() async {
     final username = _username;
-    final password = _password;
-    if (username == null || password == null) return false;
+    final storedPassword = _password;
+    if (username == null || storedPassword == null) {
+      return const XlfSessionExpiredException();
+    }
+
+    if (_lockedUsername == username) {
+      final error = XlfAccountLockedException(
+        _lockedMessage ?? kAccountLockedMessage,
+      );
+      await _notifyLocked(error.message);
+      return error;
+    }
+
+    // 1. 先尝试保存的密码。密码已被拒绝过就不再重复尝试。
+    if (!_credentialsRejected) {
+      try {
+        await login(username, storedPassword);
+        return null;
+      } on XlfAccountLockedException catch (e) {
+        _lockedUsername = username;
+        _lockedMessage = e.message;
+        await _notifyLocked(e.message);
+        return e;
+      } on XlfAuthException {
+        _credentialsRejected = true;
+      } on XlfException catch (e) {
+        // 网络 / 平台格式异常：不要误报成密码错误，交给页面重试。
+        return e;
+      }
+    }
+
+    // 2. 保存的密码失效，原地请用户重新输入，而不是跳回登录页。
+    final prompt = reauthPrompt;
+    if (prompt == null) {
+      return const XlfSessionExpiredException();
+    }
+
+    XlfException? terminalFailure;
+    final succeeded = await prompt(username, (password) async {
+      if (password.isEmpty) {
+        return const XlfReauthResult.retry('请输入密码');
+      }
+      try {
+        await login(username, password);
+        await _persistRefreshedPassword(username, password);
+        return const XlfReauthResult.success();
+      } on XlfAccountLockedException catch (e) {
+        _lockedUsername = username;
+        _lockedMessage = e.message;
+        terminalFailure = e;
+        return XlfReauthResult.terminal(e.message);
+      } on XlfAuthException catch (e) {
+        // 密码仍然错误：保留对话框让用户重试。
+        return XlfReauthResult.retry(e.message);
+      } on XlfException catch (e) {
+        terminalFailure = e;
+        return XlfReauthResult.terminal(e.message);
+      } catch (e) {
+        final failure = XlfException('登录失败：$e');
+        terminalFailure = failure;
+        return XlfReauthResult.terminal(failure.message);
+      }
+    });
+
+    if (succeeded) {
+      _credentialsRejected = false;
+      _lockedUsername = null;
+      _lockedMessage = null;
+      return null;
+    }
+    if (terminalFailure != null) {
+      if (terminalFailure is XlfAccountLockedException) {
+        await _notifyLocked(terminalFailure!.message);
+      }
+      return terminalFailure;
+    }
+    return const XlfSessionExpiredException();
+  }
+
+  Future<void> _notifyLocked(String message) async {
+    final notice = accountLockedNotice;
+    if (notice == null) return;
     try {
-      await login(username, password);
-      return true;
+      await notice(message);
     } catch (_) {
-      return false;
+      // 提示失败不应影响原请求的错误处理。
+    }
+  }
+
+  Future<void> _persistRefreshedPassword(
+    String username,
+    String password,
+  ) async {
+    final save = onCredentialsRefreshed;
+    if (save == null) return;
+    try {
+      await save(username, password);
+    } catch (_) {
+      // 密码保存失败时当前会话仍然有效；下次启动前由账号页提示。
     }
   }
 
   /// 使用当前登录账号主动重新登录。
   ///
   /// 供业务层在会话异常（例如考试列表被服务端清空）时恢复，
-  /// 避免各处直接读取本地保存的密码。未登录时抛出 [XlfException]。
+  /// 密码失效时会原地请求用户重新输入。未登录时抛出 [XlfException]。
   Future<void> relogin() async {
-    final username = _username;
-    final password = _password;
-    if (username == null || password == null) {
-      throw XlfException('登录状态已失效，请重新登录');
-    }
-    await login(username, password);
+    final failure = await _recoverSession();
+    if (failure != null) throw failure;
   }
 
   // ---------------------------------------------------------------------------
@@ -139,86 +255,115 @@ class XlfClient {
 
   /// 登录。成功返回用户基本信息；失败抛出 [XlfException]。
   Future<LoginResult> login(String username, String password) async {
-    _inLoginFlow = true;
-    try {
-      await clearSession();
+    await _clearCookies();
 
-      // 1. 访问登录页，建立会话（拿到 JSESSIONID / DWRSESSIONID）。
-      await _get('/login.jsp');
+    // 1. 访问登录页，建立会话（拿到 JSESSIONID / DWRSESSIONID）。
+    await _get('/login.jsp', loginRequest: true);
 
-      // 2. AES 加密用户名密码。
-      final encName = AesCrypto.instance.encrypt(username);
-      final encPass = AesCrypto.instance.encrypt(password);
+    // 2. AES 加密用户名密码。
+    final encName = AesCrypto.instance.encrypt(username);
+    final encPass = AesCrypto.instance.encrypt(password);
 
-      // 3. 通过 DWR 查询学校/班级信息（同时校验账号密码）。
-      final unit = await _dwrFindUnitOrClass(encName, encPass);
-      final type = unit['type'] as int?;
-      if (type != 1) {
-        final err = (unit['errorMessage'] as String?)?.trim();
-        throw XlfException(err != null && err.isNotEmpty ? err : '用户名或密码错误');
+    // 3. 通过 DWR 查询学校/班级信息（同时校验账号密码）。
+    final unit = await _dwrFindUnitOrClass(
+      encName,
+      encPass,
+      loginRequest: true,
+    );
+    final unitFailure = loginFailureFromUnit(unit);
+    if (unitFailure != null) {
+      if (unitFailure is XlfAccountLockedException) {
+        _lockedUsername = username;
+        _lockedMessage = unitFailure.message;
       }
-
-      final schoolId = (unit['schoolId'] as num?)?.toString() ?? '';
-      final classId = (unit['classId'] as num?)?.toString() ?? '';
-      final userId = (unit['userId'] as num?)?.toString() ?? '';
-      final schoolName = (unit['schoolName'] as String?) ?? '';
-      final className = (unit['className'] as String?) ?? '';
-
-      // 4. 提交登录表单（Acegi），成功后重定向到首页。
-      final resp = await _postForm(
-        kLoginCheckUrl,
-        {
-          'j_username': encName,
-          'j_password': encPass,
-          'authType': kStudentAuthType,
-          'schoolId': schoolId,
-          'classId': classId,
-          'isLogin': '1',
-          'ifsecond': '2',
-          'loginNum': '0',
-          'ifChangeSelectSchool': '1',
-          'validCheckCode': '0',
-          'pass': '',
-          'ifSave': '1',
-        },
-        followRedirects: false,
-      );
-
-      final location = resp.headers.value('location') ?? '';
-      if (location.contains('error')) {
-        throw XlfException(_parseLoginError(location));
-      }
-
-      // 5. 登录成功后访问首页，确认会话有效并拿到考试列表入口。
-      final home = await _get(kHomeUrl, followRedirects: true);
-      if (home.contains('login.jsp')) {
-        throw XlfException('登录失败，请检查账号密码');
-      }
-
-      _username = username;
-      _password = password;
-
-      return LoginResult(
-        schoolName: schoolName,
-        className: className,
-        userId: userId,
-        schoolId: schoolId,
-        classId: classId,
-      );
-    } finally {
-      _inLoginFlow = false;
+      throw unitFailure;
     }
-  }
 
-  String _parseLoginError(String location) {
-    if (location.contains('user_psw_error')) return '用户名或密码错误';
-    if (location.contains('locked')) return '账户已被锁定';
-    return '登录失败';
+    final schoolId = (unit['schoolId'] as num?)?.toString() ?? '';
+    final classId = (unit['classId'] as num?)?.toString() ?? '';
+    final userId = (unit['userId'] as num?)?.toString() ?? '';
+    final schoolName = (unit['schoolName'] as String?) ?? '';
+    final className = (unit['className'] as String?) ?? '';
+
+    // 4. 提交登录表单（Acegi），成功后重定向到首页。
+    final resp = await _postForm(
+      kLoginCheckUrl,
+      {
+        'j_username': encName,
+        'j_password': encPass,
+        'authType': kStudentAuthType,
+        'schoolId': schoolId,
+        'classId': classId,
+        'isLogin': '1',
+        'ifsecond': '2',
+        'loginNum': '0',
+        'ifChangeSelectSchool': '1',
+        'validCheckCode': '0',
+        'pass': '',
+        'ifSave': '1',
+      },
+      followRedirects: false,
+      loginRequest: true,
+    );
+
+    final location = resp.headers.value('location') ?? '';
+    final redirectFailure = loginFailureFromRedirect(location);
+    if (redirectFailure != null) {
+      if (redirectFailure is XlfAccountLockedException) {
+        _lockedUsername = username;
+        _lockedMessage = redirectFailure.message;
+      }
+      throw redirectFailure;
+    }
+
+    // 某些锁定 / 错误会以 200 的登录页 + 红色错误提示返回。
+    final pageFailure = loginFailureFromPage(
+      resp.data?.toString() ?? '',
+      location: location,
+    );
+    if (pageFailure != null) {
+      if (pageFailure is XlfAccountLockedException) {
+        _lockedUsername = username;
+        _lockedMessage = pageFailure.message;
+      }
+      throw pageFailure;
+    }
+
+    // 5. 登录成功后访问首页，确认会话有效并拿到考试列表入口。
+    final homeResp = await _getResponse(kHomeUrl, loginRequest: true);
+    final home = homeResp.data.toString();
+    if (home.contains('login.jsp')) {
+      final homeFailure =
+          loginFailureFromPage(home, location: homeResp.realUri.toString()) ??
+          const XlfAuthException('登录失败，请检查账号密码');
+      if (homeFailure is XlfAccountLockedException) {
+        _lockedUsername = username;
+        _lockedMessage = homeFailure.message;
+      }
+      throw homeFailure;
+    }
+
+    _username = username;
+    _password = password;
+    _lockedUsername = null;
+    _lockedMessage = null;
+    _credentialsRejected = false;
+
+    return LoginResult(
+      schoolName: schoolName,
+      className: className,
+      userId: userId,
+      schoolId: schoolId,
+      classId: classId,
+    );
   }
 
   /// DWR 调用：查询用户学校/班级信息。
   Future<Map<String, dynamic>> _dwrFindUnitOrClass(
-      String encName, String encPass) async {
+    String encName,
+    String encPass, {
+    bool loginRequest = false,
+  }) async {
     final text = await _dwrCall(
       scriptName: 'SelectUserUtil',
       methodName: 'findUnitOrClassMessage',
@@ -228,6 +373,7 @@ class XlfClient {
         'number:$kStudentAuthType',
       ],
       page: '/tqweb/login.jsp',
+      loginRequest: loginRequest,
     );
     return _parseDwrReply(text);
   }
@@ -241,7 +387,9 @@ class XlfClient {
       page: '/tqweb/demo/MainAction.a?loginDispatcher',
     );
     // 响应形如 handleCallback("0","0",true)
-    final m = RegExp(r'handleCallback\("0","0",(true|false)\)').firstMatch(text);
+    final m = RegExp(
+      r'handleCallback\("0","0",(true|false)\)',
+    ).firstMatch(text);
     return m != null && m.group(1) == 'true';
   }
 
@@ -251,64 +399,71 @@ class XlfClient {
     required String methodName,
     required List<String> params,
     required String page,
+    bool loginRequest = false,
   }) async {
-    final sessionId = await _dwrGenerateId(page);
-    final scriptSessionId = '$sessionId/${_randomId()}';
+    return _guard(() async {
+      final sessionId = await _dwrGenerateId(page, loginRequest: loginRequest);
+      final scriptSessionId = '$sessionId/${_randomId()}';
 
-    final body = <String>[
-      'callCount=1',
-      'nextReverseAjaxIndex=0',
-      'c0-scriptName=$scriptName',
-      'c0-methodName=$methodName',
-      'c0-id=0',
-      for (var i = 0; i < params.length; i++) 'c0-param$i=${params[i]}',
-      'batchId=0',
-      'instanceId=0',
-      'page=${Uri.encodeComponent(page)}',
-      'scriptSessionId=$scriptSessionId',
-      '',
-    ].join('\n');
+      final body = <String>[
+        'callCount=1',
+        'nextReverseAjaxIndex=0',
+        'c0-scriptName=$scriptName',
+        'c0-methodName=$methodName',
+        'c0-id=0',
+        for (var i = 0; i < params.length; i++) 'c0-param$i=${params[i]}',
+        'batchId=0',
+        'instanceId=0',
+        'page=${Uri.encodeComponent(page)}',
+        'scriptSessionId=$scriptSessionId',
+        '',
+      ].join('\n');
 
-    final resp = await _dio.post(
-      '$kBaseUrl/dwr/call/plaincall/$scriptName.$methodName.dwr',
-      data: body,
-      options: _dwrOptions(),
-    );
-    return resp.data.toString();
+      final resp = await _dio.post(
+        '$kBaseUrl/dwr/call/plaincall/$scriptName.$methodName.dwr',
+        data: body,
+        options: _dwrOptions(loginRequest: loginRequest),
+      );
+      return resp.data.toString();
+    });
   }
 
   /// DWR 握手：获取脚本会话 ID。
-  Future<String> _dwrGenerateId(String page) async {
-    final body = [
-      'callCount=1',
-      'nextReverseAjaxIndex=0',
-      'c0-scriptName=__System',
-      'c0-methodName=generateId',
-      'c0-id=0',
-      'batchId=0',
-      'instanceId=0',
-      'page=${Uri.encodeComponent(page)}',
-      'scriptSessionId=',
-      '',
-    ].join('\n');
+  Future<String> _dwrGenerateId(
+    String page, {
+    bool loginRequest = false,
+  }) async {
+    return _guard(() async {
+      final body = [
+        'callCount=1',
+        'nextReverseAjaxIndex=0',
+        'c0-scriptName=__System',
+        'c0-methodName=generateId',
+        'c0-id=0',
+        'batchId=0',
+        'instanceId=0',
+        'page=${Uri.encodeComponent(page)}',
+        'scriptSessionId=',
+        '',
+      ].join('\n');
 
-    final resp = await _dio.post(
-      '$kBaseUrl/dwr/call/plaincall/__System.generateId.dwr',
-      data: body,
-      options: _dwrOptions(),
-    );
+      final resp = await _dio.post(
+        '$kBaseUrl/dwr/call/plaincall/__System.generateId.dwr',
+        data: body,
+        options: _dwrOptions(loginRequest: loginRequest),
+      );
 
-    final text = resp.data.toString();
-    final m =
-        RegExp(r'handleCallback\("0","0","([^"]+)"\)').firstMatch(text);
-    if (m == null) {
-      throw XlfException('平台返回格式异常，请稍后重试');
-    }
-    return m.group(1)!;
+      final text = resp.data.toString();
+      final m = RegExp(r'handleCallback\("0","0","([^"]+)"\)').firstMatch(text);
+      if (m == null) {
+        throw const XlfException('平台返回格式异常，请稍后重试');
+      }
+      return m.group(1)!;
+    });
   }
 
   /// DWR 请求公共 Options（必须携带 Referer，否则服务器会拒绝）。
-  Options _dwrOptions() {
+  Options _dwrOptions({bool loginRequest = false}) {
     return Options(
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
@@ -316,6 +471,7 @@ class XlfClient {
         'Accept': '*/*',
       },
       responseType: ResponseType.plain,
+      extra: loginRequest ? const {'xlf_login_request': true} : null,
     );
   }
 
@@ -329,13 +485,13 @@ class XlfClient {
       start = text.indexOf(marker2);
       markerLen = marker2.length;
       if (start == -1) {
-        throw XlfException('平台返回格式异常，请稍后重试');
+        throw const XlfException('平台返回格式异常，请稍后重试');
       }
     }
     final jsonStart = start + markerLen;
     final jsonEnd = text.lastIndexOf(']);');
     if (jsonEnd <= jsonStart) {
-      throw XlfException('平台返回格式异常，请稍后重试');
+      throw const XlfException('平台返回格式异常，请稍后重试');
     }
     final jsonStr = _jsToJson(text.substring(jsonStart, jsonEnd + 1));
     final list = jsonDecode(jsonStr) as List;
@@ -360,15 +516,15 @@ class XlfClient {
   // ---------------------------------------------------------------------------
 
   /// 首页考试列表（支持按学年/学期筛选）。
-  Future<String> fetchHomeHtml({String? schoolYearId, String? testSemester}) async {
+  Future<String> fetchHomeHtml({
+    String? schoolYearId,
+    String? testSemester,
+  }) async {
     if (schoolYearId != null || testSemester != null) {
-      final resp = await _postForm(
-        '$kBaseUrl/demo/MainAction.a',
-        {
-          if (schoolYearId != null) 'schoolYearId': schoolYearId,
-          if (testSemester != null) 'testSemester': testSemester,
-        },
-      );
+      final resp = await _postForm('$kBaseUrl/demo/MainAction.a', {
+        if (schoolYearId != null) 'schoolYearId': schoolYearId,
+        if (testSemester != null) 'testSemester': testSemester,
+      });
       return resp.data.toString();
     }
     return _get(kHomeUrl);
@@ -379,7 +535,7 @@ class XlfClient {
     // 需先设置「当前考试」，服务器才会返回报告。
     final ok = await _dwrDoModifyCurrentTest(testId);
     if (!ok) {
-      throw XlfException('您不能浏览这次考试的报表');
+      throw const XlfException('您不能浏览这次考试的报表');
     }
     final resp = await _postForm(
       '$kStudentReportUrl?doShowStudentReport&test_id=$testId',
@@ -423,24 +579,73 @@ class XlfClient {
 
   /// 抓取图片二进制数据（用于自签名证书环境下的图片展示）。
   Future<Uint8List> fetchImageBytes(String url) async {
-    final resp = await _dio.get<dynamic>(
-      url,
-      options: Options(responseType: ResponseType.bytes),
-    );
-    return resp.data as Uint8List;
+    return _guard(() async {
+      final resp = await _dio.get<dynamic>(
+        url,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      return resp.data as Uint8List;
+    });
   }
 
   // ---------------------------------------------------------------------------
   // 底层请求封装
   // ---------------------------------------------------------------------------
 
-  Future<String> _get(String url, {bool followRedirects = true}) async {
-    final resp = await _dio.get(
-      url,
-      options: Options(
-        responseType: ResponseType.plain,
-        followRedirects: followRedirects,
+  /// 把 Dio 异常转换为面向用户的 [XlfException]。
+  Future<T> _guard<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } on DioException catch (e) {
+      final inner = e.error;
+      if (inner is XlfException) throw inner;
+      throw XlfNetworkException(_networkMessage(e));
+    }
+  }
+
+  String _networkMessage(DioException error) {
+    return switch (error.type) {
+      DioExceptionType.connectionTimeout ||
+      DioExceptionType.sendTimeout ||
+      DioExceptionType.receiveTimeout ||
+      DioExceptionType.transformTimeout => '连接服务器超时，请稍后重试',
+      DioExceptionType.badResponse =>
+        error.response?.statusCode == null
+            ? '服务器响应异常，请稍后重试'
+            : '服务器响应异常（${error.response!.statusCode}）',
+      DioExceptionType.cancel => '请求已取消',
+      DioExceptionType.badCertificate => '服务器证书校验失败',
+      DioExceptionType.connectionError ||
+      DioExceptionType.unknown => kNetworkErrorMessage,
+    };
+  }
+
+  Future<Response<dynamic>> _getResponse(
+    String url, {
+    bool followRedirects = true,
+    bool loginRequest = false,
+  }) {
+    return _guard(
+      () => _dio.get(
+        url,
+        options: Options(
+          responseType: ResponseType.plain,
+          followRedirects: followRedirects,
+          extra: loginRequest ? const {'xlf_login_request': true} : null,
+        ),
       ),
+    );
+  }
+
+  Future<String> _get(
+    String url, {
+    bool followRedirects = true,
+    bool loginRequest = false,
+  }) async {
+    final resp = await _getResponse(
+      url,
+      followRedirects: followRedirects,
+      loginRequest: loginRequest,
     );
     return resp.data.toString();
   }
@@ -449,20 +654,24 @@ class XlfClient {
     String url,
     Map<String, String> fields, {
     bool followRedirects = true,
+    bool loginRequest = false,
   }) {
-    return _dio.post(
-      url,
-      data: fields,
-      options: Options(
-        contentType: Headers.formUrlEncodedContentType,
-        responseType: ResponseType.plain,
-        followRedirects: followRedirects,
+    return _guard(
+      () => _dio.post(
+        url,
+        data: fields,
+        options: Options(
+          contentType: Headers.formUrlEncodedContentType,
+          responseType: ResponseType.plain,
+          followRedirects: followRedirects,
+          extra: loginRequest ? const {'xlf_login_request': true} : null,
+        ),
       ),
     );
   }
 }
 
-/// 会话守卫拦截器：检测会话过期，静默重登后重试一次原请求。
+/// 会话守卫拦截器：检测会话过期，自动恢复后重试一次原请求。
 class _SessionGuardInterceptor extends Interceptor {
   _SessionGuardInterceptor(this._client);
 
@@ -471,8 +680,9 @@ class _SessionGuardInterceptor extends Interceptor {
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
     final options = response.requestOptions;
-    // 登录流程内不拦截；已重试过的请求不再重试，避免死循环。
-    if (_client._inLoginFlow || options.extra['xlf_session_retried'] == true) {
+    // 登录流程内的请求不拦截；已重试过的请求不再重试，避免死循环。
+    if (options.extra['xlf_login_request'] == true ||
+        options.extra['xlf_session_retried'] == true) {
       handler.next(response);
       return;
     }
@@ -487,16 +697,36 @@ class _SessionGuardInterceptor extends Interceptor {
     Response response,
     ResponseInterceptorHandler handler,
   ) async {
-    final ok = await _client._reloginSilently();
-    if (!ok) {
-      handler.next(response);
+    final failure = await _client._recoverSession();
+    if (failure != null) {
+      handler.reject(
+        DioException(
+          requestOptions: response.requestOptions,
+          response: response,
+          type: DioExceptionType.badResponse,
+          error: failure,
+        ),
+      );
       return;
     }
     try {
       final options = response.requestOptions;
       options.extra['xlf_session_retried'] = true;
       final retried = await _client._dio.fetch(options);
+      if (_client._isSessionExpired(retried)) {
+        handler.reject(
+          DioException(
+            requestOptions: options,
+            response: retried,
+            type: DioExceptionType.badResponse,
+            error: const XlfSessionExpiredException(),
+          ),
+        );
+        return;
+      }
       handler.resolve(retried);
+    } on DioException catch (e) {
+      handler.reject(e);
     } catch (_) {
       handler.next(response);
     }

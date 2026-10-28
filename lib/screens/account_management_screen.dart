@@ -4,6 +4,7 @@ import 'package:m3e_core/m3e_core.dart';
 import '../models/models.dart';
 import '../services/account_store.dart';
 import '../services/xlf_client.dart';
+import '../widgets/session_recovery.dart';
 import 'login_screen.dart';
 
 /// 账户管理页：添加 / 删除 / 设为默认账号（点击账号切换）。
@@ -20,7 +21,8 @@ class AccountManagementScreen extends StatefulWidget {
   final void Function(String username)? onDefaultChanged;
 
   @override
-  State<AccountManagementScreen> createState() => _AccountManagementScreenState();
+  State<AccountManagementScreen> createState() =>
+      _AccountManagementScreenState();
 }
 
 class _AccountManagementScreenState extends State<AccountManagementScreen> {
@@ -43,9 +45,9 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
   }
 
   Future<void> _addAccount() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const LoginScreen()));
     // 添加成功后 LoginScreen 会直接进入主界面；若返回则刷新列表。
     await _refresh();
   }
@@ -68,8 +70,10 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       builder: (_) => const Center(child: M3ECircularProgressIndicator()),
     );
     try {
-      final result =
-          await XlfClient.instance.login(account.username, account.password);
+      final result = await XlfClient.instance.login(
+        account.username,
+        account.password,
+      );
       final fresh = account.copyWith(
         schoolName: result.schoolName,
         className: result.className,
@@ -94,11 +98,18 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       }
       widget.onSwitchAccount(fresh, result);
       Navigator.of(context).pop(); // 返回主界面
+    } on XlfAccountLockedException catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // 关闭加载框
+      await showAccountLockedDialog(e.message);
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop();
       scaffold.showSnackBar(
-        SnackBar(content: Text(e.toString()), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(e.toString()),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }
@@ -178,10 +189,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
             ),
             M3EListItem(
               leading: Icon(Icons.delete_outline, color: scheme.error),
-              headline: Text(
-                '删除账号',
-                style: TextStyle(color: scheme.error),
-              ),
+              headline: Text('删除账号', style: TextStyle(color: scheme.error)),
             ),
           ],
         ),
@@ -223,7 +231,9 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
             radius: 22,
             backgroundColor: scheme.primaryContainer,
             foregroundColor: scheme.onPrimaryContainer,
-            child: Text(account.username.isNotEmpty ? account.username[0] : '?'),
+            child: Text(
+              account.username.isNotEmpty ? account.username[0] : '?',
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -243,15 +253,18 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 1),
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
                           color: scheme.primaryContainer,
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
                           '默认',
-                          style: textTheme.labelSmall
-                              ?.copyWith(color: scheme.primary),
+                          style: textTheme.labelSmall?.copyWith(
+                            color: scheme.primary,
+                          ),
                         ),
                       ),
                     ],
@@ -262,8 +275,9 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
                     account.schoolName ?? '',
                     account.className ?? '',
                   ].where((s) => s.isNotEmpty).join(' · '),
-                  style: textTheme.bodyMedium
-                      ?.copyWith(color: scheme.onSurfaceVariant),
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),

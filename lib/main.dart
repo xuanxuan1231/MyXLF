@@ -3,10 +3,12 @@ import 'package:material_ui/material_ui.dart';
 import 'screens/bootstrap_screen.dart';
 import 'services/xlf_client.dart';
 import 'theme/app_theme.dart';
+import 'widgets/session_recovery.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   XlfClient.instance.init();
+  installSessionRecovery();
   runApp(const XlfApp());
 }
 
@@ -17,6 +19,8 @@ class XlfApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'MyXLF',
+      navigatorKey: appNavigatorKey,
+      scaffoldMessengerKey: appScaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
