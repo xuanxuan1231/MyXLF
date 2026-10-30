@@ -20,6 +20,12 @@ void main() {
     XlfClient.instance.dio.httpClientAdapter = server;
   });
 
+  tearDown(() {
+    XlfClient.instance.reauthPrompt = null;
+    XlfClient.instance.accountLockedNotice = null;
+    XlfClient.instance.onCredentialsRefreshed = null;
+  });
+
   test('登录失败回滚会话 Cookie，当前账号与其会话保持有效', () async {
     // 1. 以 A 登录成功。
     final result = await XlfClient.instance.login('A', 'pass-A');
@@ -141,6 +147,58 @@ void main() {
     await expectLater(second, throwsA(isA<XlfSessionExpiredException>()));
     await logout;
     expect(XlfClient.instance.currentUsername, isNull);
+  });
+
+  test('会话恢复期间登出：不再弹重新登录框，也不会被登回去', () async {
+    await XlfClient.instance.login('A', 'pass-A');
+
+    var prompts = 0;
+    XlfClient.instance.reauthPrompt = (username, verify) async {
+      prompts++;
+      return false;
+    };
+
+    // 静默重登停在 DWR 请求上，此时用户点了退出登录。
+    final gate = Completer<void>();
+    server.gate = gate;
+    final recovery = XlfClient.instance.relogin();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    final logout = XlfClient.instance.clearSession();
+    gate.complete();
+
+    await expectLater(recovery, throwsA(isA<XlfSessionExpiredException>()));
+    await logout;
+
+    expect(prompts, 0, reason: '登出后不应再用残留账号弹重新登录框');
+    expect(XlfClient.instance.currentUsername, isNull);
+  });
+
+  test('重新登录对话框打开期间登出：提交密码不会把会话登回来', () async {
+    await XlfClient.instance.login('A', 'pass-A');
+
+    // 保存的密码已失效：恢复流程会停在「请输入密码」对话框。
+    server.credentialsValid = false;
+    XlfClient.instance.reauthPrompt = (username, verify) async {
+      // 用户看到对话框时（例如通过其他入口）已经完成登出。
+      await XlfClient.instance.clearSession();
+      expect(XlfClient.instance.currentUsername, isNull);
+
+      // 对话框中输入密码并提交，不能再把会话登回来。
+      server.credentialsValid = true;
+      final result = await verify('new-pass');
+      return result.success;
+    };
+
+    await expectLater(
+      XlfClient.instance.relogin(),
+      throwsA(isA<XlfSessionExpiredException>()),
+    );
+    expect(
+      XlfClient.instance.currentUsername,
+      isNull,
+      reason: '登出必须优先于残留对话框里的重新登录',
+    );
   });
 
   test('DWR 返回无法解析时给出友好提示而非 FormatException', () async {

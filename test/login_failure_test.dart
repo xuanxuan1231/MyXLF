@@ -93,6 +93,16 @@ void main() {
       expect(failure, isNot(isA<XlfAccountLockedException>()));
     });
 
+    test('「再错将被锁定」是警告，不是已锁定', () {
+      final failure = loginFailureFromUnit({
+        'type': 0,
+        'errorMessage': '用户名或密码错误，再输错将被锁定。',
+      });
+      expect(failure, isA<XlfAuthException>());
+      expect(failure, isNot(isA<XlfAccountLockedException>()));
+      expect(failure!.message, isNot(kAccountLockedMessage));
+    });
+
     test('登录重定向可识别锁定与密码错误', () {
       expect(
         loginFailureFromRedirect('/tqweb/login.jsp?error=locked'),

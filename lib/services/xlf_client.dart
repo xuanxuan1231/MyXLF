@@ -139,9 +139,11 @@ class XlfClient {
   static final List<Uri> _cookieProbeScopes = [
     _cookieScope,
     Uri.parse(kLoginUrl),
+    Uri.parse(kDwrFindUnitUrl),
     Uri.parse(kHomeUrl),
     Uri.parse(kStudentReportUrl),
     Uri.parse(kSubjectReportUrl),
+    Uri.parse(kAccountInfoUrl),
   ];
 
   /// 备份当前会话 Cookie（登录失败时回滚用）。
@@ -167,8 +169,11 @@ class XlfClient {
 
   /// 恢复之前备份的会话 Cookie（登录失败回滚用）。
   Future<void> _restoreCookies(List<Cookie> cookies) async {
-    if (cookies.isEmpty) return;
     try {
+      // 先清掉失败尝试写入的 Cookie：只追加的话，深层路径上的新会话
+      // （例如 Path=/tqweb/demo）会残留下来，后续请求可能带上半死的会话。
+      await _cookieJar.deleteAll();
+      if (cookies.isEmpty) return;
       // 写入不受路径过滤，Cookie 自带的 domain / path 会原样保留。
       await _cookieJar.saveFromResponse(_cookieScope, cookies);
     } catch (_) {
@@ -211,11 +216,17 @@ class XlfClient {
     if (username == null || storedPassword == null) {
       return const XlfSessionExpiredException();
     }
+    // 记录恢复开始时的会话代数：期间一旦登出，本次恢复必须整体作废，
+    // 不能再用残留的账号信息（包括弹对话框）把会话登回来。
+    final generation = _sessionGeneration;
     final epoch = _loginEpoch;
 
     // 有登录正在进行（例如用户主动切换账号）时先等它结束，
     // 否则旧账号的恢复会把刚切好的新账号又换回去。
     await _loginQueue;
+    if (generation != _sessionGeneration) {
+      return const XlfSessionExpiredException();
+    }
     if (_loginEpoch != epoch) {
       // 期间登录成功（含切换账号）：当前会话已是新的，直接重试原请求。
       return null;
@@ -242,12 +253,20 @@ class XlfClient {
         _lockedMessage = e.message;
         await _notifyLocked(e.message);
         return e;
+      } on XlfSessionExpiredException {
+        // 重登期间发生登出：这是会话作废，不是密码错误，不能拿去弹框。
+        return const XlfSessionExpiredException();
       } on XlfAuthException {
         _credentialsRejected = true;
       } on XlfException catch (e) {
         // 网络 / 平台格式异常：不要误报成密码错误，交给页面重试。
         return e;
       }
+    }
+
+    // 静默重登可能已经失败很久，用户此时可能已经登出：不要再弹框。
+    if (generation != _sessionGeneration) {
+      return const XlfSessionExpiredException();
     }
 
     // 2. 保存的密码失效，原地请用户重新输入，而不是跳回登录页。
@@ -258,6 +277,10 @@ class XlfClient {
 
     XlfException? terminalFailure;
     final succeeded = await prompt(username, (password) async {
+      // 对话框打开期间用户已登出：即便提交了密码也不能把会话登回来。
+      if (generation != _sessionGeneration) {
+        return const XlfReauthResult.terminal();
+      }
       if (password.isEmpty) {
         return const XlfReauthResult.retry('请输入密码');
       }
@@ -265,6 +288,10 @@ class XlfClient {
         await login(username, password);
         await _persistRefreshedPassword(username, password);
         return const XlfReauthResult.success();
+      } on XlfSessionExpiredException {
+        // 提交期间发生登出：关闭对话框，不要继续重试。
+        terminalFailure = const XlfSessionExpiredException();
+        return const XlfReauthResult.terminal(kSessionExpiredMessage);
       } on XlfAccountLockedException catch (e) {
         _lockedUsername = username;
         _lockedMessage = e.message;
@@ -941,7 +968,14 @@ class _SessionGuardInterceptor extends Interceptor {
     Response response,
     ResponseInterceptorHandler handler,
   ) async {
-    final failure = await _client._recoverSession();
+    XlfException? failure;
+    try {
+      failure = await _client._recoverSession();
+    } catch (e) {
+      // 恢复流程本身（含界面注入的对话框）出错时也必须结束本次请求，
+      // 否则 handler 永远不会被调用，调用方会一直挂在网络请求上。
+      failure = e is XlfException ? e : const XlfSessionExpiredException();
+    }
     if (failure != null) {
       handler.reject(
         DioException(

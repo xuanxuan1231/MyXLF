@@ -64,17 +64,24 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       );
       return;
     }
-    // 加载框只允许关闭一次，避免误弹掉下层页面。
+    // 加载框用对话框自身的 context 关闭，避免用户用返回键关掉加载框后，
+    // 这里再去 pop 下层页面（会把账户页甚至主界面一起弹掉）。
+    final loadingContextKey = GlobalKey();
     var loadingOpen = true;
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(child: M3ECircularProgressIndicator()),
+      builder: (_) => Center(
+        key: loadingContextKey,
+        child: const M3ECircularProgressIndicator(),
+      ),
     );
     void closeLoading() {
       if (!loadingOpen) return;
       loadingOpen = false;
-      Navigator.of(context).pop();
+      final loadingContext = loadingContextKey.currentContext;
+      if (loadingContext == null) return; // 已被返回键关闭
+      Navigator.of(loadingContext).pop();
     }
 
     try {

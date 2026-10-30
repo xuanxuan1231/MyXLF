@@ -54,8 +54,12 @@ class XlfReauthResult {
 
 const List<String> _lockKeywords = ['锁定', '锁住', '冻结', '限制登录', '禁止登录', 'locked'];
 
+/// 「再输错将被锁定」这类警告描述的是未来状态，本质仍是密码错误。
+final RegExp _lockWarningPattern = RegExp(r'(将|会|即将)(被)?(锁定|锁住|冻结|限制登录|禁止登录)');
+
 bool _looksLocked(String text) {
   final lower = text.toLowerCase();
+  if (_lockWarningPattern.hasMatch(lower)) return false;
   return _lockKeywords.any(lower.contains);
 }
 
