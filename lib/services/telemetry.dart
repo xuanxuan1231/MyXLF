@@ -77,7 +77,8 @@ class TelemetryService {
     final signature = '${error.runtimeType}:$error\n$head';
     final now = DateTime.now();
     final last = _lastErrorAt;
-    final duplicate = signature == _lastErrorSignature &&
+    final duplicate =
+        signature == _lastErrorSignature &&
         last != null &&
         now.difference(last).inSeconds < 3;
     _lastErrorSignature = signature;
@@ -102,9 +103,16 @@ class TelemetryService {
   }
 
   /// 是否需要向用户展示首次启动的「可选访问信息收集」说明页。
+  ///
+  /// 读取失败时按「未同意」处理：宁可多问一次，也不在状态未知时采集。
   Future<bool> needsConsent() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_kConsentKey) == null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_kConsentKey) == null;
+    } catch (e) {
+      if (kDebugMode) debugPrint('读取遥测同意状态失败：$e');
+      return true;
+    }
   }
 
   /// 初始化遥测 SDK。必须在 `runApp` 之前调用。
@@ -205,8 +213,17 @@ class TelemetryService {
   }
 
   /// 把设备 ID 设为匿名 distinct ID（不附带任何用户属性）。
+  ///
+  /// bootstrap 已经预置过同一 ID 时跳过 `identify()`：重复识别会额外产生
+  /// `$identify` 事件，并触发一次 feature flag 请求。
   Future<void> _identifyDevice() async {
     if (_deviceId.isEmpty) return;
+    try {
+      final current = await Posthog().getDistinctId();
+      if (current == _deviceId) return;
+    } catch (_) {
+      // 读取失败时继续尝试识别，避免停留在 SDK 生成的随机 ID 上。
+    }
     await Posthog().identify(userId: _deviceId);
   }
 
@@ -224,9 +241,17 @@ class TelemetryService {
   }
 
   /// 记录用户对「可选访问信息收集」的选择，并立即生效。
+  ///
+  /// 本地写入失败时保持原状态不变，避免出现「内存里已同意、下次启动又未
+  /// 同意」的错位，也避免在无法留痕的情况下开始采集。
   Future<void> setConsent({required bool enabled}) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kConsentKey, enabled);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kConsentKey, enabled);
+    } catch (e) {
+      if (kDebugMode) debugPrint('保存遥测同意状态失败：$e');
+      return;
+    }
     if (!_configured) {
       _consent = enabled;
       return;
@@ -284,9 +309,10 @@ class TelemetryService {
     if (_openReported) return;
     _openReported = true;
     await _checkInstallOrUpdate();
-    await capture('Application Opened', properties: {
-      'from_background': fromBackground,
-    });
+    await capture(
+      'Application Opened',
+      properties: {'from_background': fromBackground},
+    );
   }
 
   /// 退到后台 / 进程结束：上报 `Application Backgrounded` 与前台使用时长。
@@ -295,13 +321,16 @@ class TelemetryService {
     _foregroundSince = null;
     _openReported = false;
     if (!isEnabled || since == null) return;
-    await capture('Application Session Ended', properties: {
-      'duration_s': DateTime.now().difference(since).inSeconds,
-    });
+    await capture(
+      'Application Session Ended',
+      properties: {'duration_s': DateTime.now().difference(since).inSeconds},
+    );
     await capture('Application Backgrounded');
   }
 
   /// 判断本次启动是首次安装还是版本升级，并更新记录。
+  ///
+  /// 只有事件真正交给 SDK 后才写入版本号；否则安装 / 升级事件会永久丢失。
   Future<void> _checkInstallOrUpdate() async {
     final info = _packageInfo;
     if (info == null) return;
@@ -309,19 +338,26 @@ class TelemetryService {
       final prefs = await SharedPreferences.getInstance();
       final current = '${info.version}+${info.buildNumber}';
       final previous = prefs.getString(_kLastVersionKey);
+      var reported = true;
       if (previous == null) {
-        await capture('Application Installed', properties: {
-          'app_version': info.version,
-          'app_build': info.buildNumber,
-        });
+        reported = await capture(
+          'Application Installed',
+          properties: {
+            'app_version': info.version,
+            'app_build': info.buildNumber,
+          },
+        );
       } else if (previous != current) {
-        await capture('Application Updated', properties: {
-          'previous_version': previous,
-          'app_version': info.version,
-          'app_build': info.buildNumber,
-        });
+        reported = await capture(
+          'Application Updated',
+          properties: {
+            'previous_version': previous,
+            'app_version': info.version,
+            'app_build': info.buildNumber,
+          },
+        );
       }
-      if (previous != current) {
+      if (previous != current && reported) {
         await prefs.setString(_kLastVersionKey, current);
       }
     } catch (_) {
@@ -330,15 +366,20 @@ class TelemetryService {
   }
 
   /// 上报自定义事件；遥测关闭时不做任何事。
-  Future<void> capture(
+  ///
+  /// 返回是否成功交给 SDK（失败已被吞掉，仅供内部判断是否需要更新本地
+  /// 状态，例如「已上报过的版本号」）。
+  Future<bool> capture(
     String eventName, {
     Map<String, Object>? properties,
   }) async {
-    if (!isEnabled) return;
+    if (!isEnabled) return false;
     try {
       await Posthog().capture(eventName: eventName, properties: properties);
+      return true;
     } catch (_) {
       // 遥测失败绝不能影响应用本身。
+      return false;
     }
   }
 
@@ -430,13 +471,16 @@ class TelemetryScreenObserver extends NavigatorObserver {
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    // 只统计页面回退；关闭对话框 / 弹出层时不要把下层页面重复计一次。
+    if (route.settings.name == null || route.settings.name!.isEmpty) return;
     // 返回后露出的页面。
     _report(previousRoute);
   }
 
   void _report(Route<dynamic>? route) {
     final name = route?.settings.name;
-    if (name == null || name.isEmpty) return;
+    // '/' 是 MaterialApp.home 的默认路由名，没有统计意义。
+    if (name == null || name.isEmpty || name == '/') return;
     unawaited(TelemetryService.instance.captureScreen(name));
   }
 }
@@ -448,6 +492,7 @@ class TelemetryLifecycleObserver with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         unawaited(TelemetryService.instance.onForeground());
+      case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
         unawaited(TelemetryService.instance.onBackground());

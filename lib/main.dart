@@ -28,6 +28,8 @@ void main() {
       };
       PlatformDispatcher.instance.onError = (error, stack) {
         if (kDebugMode) debugPrint('未捕获的异步异常：$error\n$stack');
+        // 遥测关闭时保留 Flutter 默认的未捕获异常行为，不做静默吞掉。
+        if (!TelemetryService.instance.isEnabled) return false;
         unawaited(
           TelemetryService.instance.reportError(
             error,
@@ -42,6 +44,12 @@ void main() {
 
       XlfClient.instance.init();
       runApp(const XlfApp());
+
+      // 初始 resumed 状态在 addObserver 之前就已分发，这里显式补一次冷启动
+      // 前台事件；onForeground 内部幂等，不会与观察者重复计数。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(TelemetryService.instance.onForeground());
+      });
     },
     (error, stack) {
       if (kDebugMode) debugPrint('未捕获的异步异常：$error\n$stack');

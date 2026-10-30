@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,50 +11,55 @@ class _ChannelLog {
 
   bool has(String method) => calls.any((c) => c.method == method);
 
-  MethodCall call(String method) =>
-      calls.firstWhere((c) => c.method == method);
+  MethodCall call(String method) => calls.firstWhere((c) => c.method == method);
 
   List<String> capturedEvents() => calls
       .where((c) => c.method == 'capture')
       .map((c) => (c.arguments as Map)['eventName'] as String)
       .toList();
 
-  Map<dynamic, dynamic> propertiesOf(String event) => (calls
-          .firstWhere((c) => c.method == 'capture' &&
-              (c.arguments as Map)['eventName'] == event)
-          .arguments as Map)['properties']
-      as Map;
+  Map<dynamic, dynamic> propertiesOf(String event) =>
+      (calls
+                  .firstWhere(
+                    (c) =>
+                        c.method == 'capture' &&
+                        (c.arguments as Map)['eventName'] == event,
+                  )
+                  .arguments
+              as Map)['properties']
+          as Map;
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const channel = MethodChannel('posthog_flutter');
-  const packageInfoChannel =
-      MethodChannel('dev.fluttercommunity.plus/package_info');
+  const packageInfoChannel = MethodChannel(
+    'dev.fluttercommunity.plus/package_info',
+  );
   late _ChannelLog log;
 
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      log.calls.add(call);
-      if (call.method == 'distinctId') return 'device-id-from-sdk';
-      // setup 的 bootstrap 会被原生端回读，这里返回 true 表示成功。
-      if (call.method == 'isOptOut') return false;
-      return null;
-    });
+          log.calls.add(call);
+          if (call.method == 'distinctId') return 'device-id-from-sdk';
+          // setup 的 bootstrap 会被原生端回读，这里返回 true 表示成功。
+          if (call.method == 'isOptOut') return false;
+          return null;
+        });
     // package_info_plus 使用平台通道读取版本号，测试中返回固定值。
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(packageInfoChannel, (call) async {
-      return <String, dynamic>{
-        'appName': 'xlf',
-        'packageName': 'top.helloswx.xlf',
-        'version': '0.0.1',
-        'buildNumber': '1',
-        'buildSignature': '',
-        if (call.method == 'getAll') 'installerStore': null,
-      };
-    });
+          return <String, dynamic>{
+            'appName': 'xlf',
+            'packageName': 'top.helloswx.xlf',
+            'version': '0.0.1',
+            'buildNumber': '1',
+            'buildSignature': '',
+            if (call.method == 'getAll') 'installerStore': null,
+          };
+        });
     log = _ChannelLog();
     TelemetryService.instance.resetForTest();
   });
@@ -86,10 +92,9 @@ void main() {
       SharedPreferences.setMockInitialValues({'telemetry_consent': true});
       await TelemetryService.instance.init();
 
-      final registered =
-          log.calls.where((c) => c.method == 'register').map(
-                (c) => (c.arguments as Map)['key'],
-              );
+      final registered = log.calls
+          .where((c) => c.method == 'register')
+          .map((c) => (c.arguments as Map)['key']);
       expect(
         registered,
         containsAll([
@@ -178,6 +183,23 @@ void main() {
       );
     });
 
+    test('桌面端进入 hidden 也结束前台会话', () async {
+      SharedPreferences.setMockInitialValues({'telemetry_consent': true});
+      await TelemetryService.instance.init();
+      await TelemetryService.instance.onForeground();
+      log.calls.clear();
+
+      TelemetryLifecycleObserver().didChangeAppLifecycleState(
+        AppLifecycleState.hidden,
+      );
+      await pumpEventQueue();
+
+      expect(
+        log.capturedEvents(),
+        containsAll(['Application Session Ended', 'Application Backgrounded']),
+      );
+    });
+
     test('退出统计后不再上报生命周期事件', () async {
       SharedPreferences.setMockInitialValues({'telemetry_consent': true});
       await TelemetryService.instance.init();
@@ -202,8 +224,7 @@ void main() {
       expect(log.capturedEvents(), contains('Telemetry Opted Out'));
       expect(log.has('disable'), isTrue);
       // Opted Out 事件必须在 disable 之前发出。
-      final optOutEvent =
-          log.calls.indexWhere((c) => c.method == 'capture');
+      final optOutEvent = log.calls.indexWhere((c) => c.method == 'capture');
       final disable = log.calls.indexWhere((c) => c.method == 'disable');
       expect(optOutEvent, lessThan(disable));
       expect(TelemetryService.instance.isConsented, isFalse);
@@ -290,8 +311,9 @@ void main() {
       // 模拟 PlatformDispatcher / zone 钩子对同一异常再次上报。
       await TelemetryService.instance.reportZoneError(error, stack);
 
-      final exceptions =
-          log.calls.where((c) => c.method == 'captureException').length;
+      final exceptions = log.calls
+          .where((c) => c.method == 'captureException')
+          .length;
       expect(exceptions, 1);
     });
   });
@@ -305,10 +327,7 @@ void main() {
       await TelemetryService.instance.captureScreen('Home');
 
       expect(log.has('screen'), isTrue);
-      expect(
-        (log.call('screen').arguments as Map)['screenName'],
-        'Home',
-      );
+      expect((log.call('screen').arguments as Map)['screenName'], 'Home');
     });
   });
 }

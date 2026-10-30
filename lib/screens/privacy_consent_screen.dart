@@ -24,7 +24,11 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
 
   Future<void> _confirm() async {
     setState(() => _saving = true);
-    await TelemetryService.instance.setConsent(enabled: _allow);
+    try {
+      await TelemetryService.instance.setConsent(enabled: _allow);
+    } catch (_) {
+      // 保存失败不应阻塞进入应用；下次启动会再次询问。
+    }
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(

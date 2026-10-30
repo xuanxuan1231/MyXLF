@@ -43,7 +43,8 @@ PostHog 中查看各项指标。
   （`lib/screens/privacy_settings_screen.dart`）中的开关，即刻生效：
   退出后不再上报任何数据，并保留一条 `Telemetry Opted Out` 事件；
   重新加入会上报 `Telemetry Opted In`，并补上本次启动的
-  `Application Opened` / `Application Installed`（用于装机量统计）。
+  `Application Opened`；若此前从未记录过版本，还会补报一条
+  `Application Installed`（用于装机量统计）。
 - 用户未做出选择之前，SDK 以 `optOut` 状态启动，**不发送任何数据**。
 
 ## 初始化顺序

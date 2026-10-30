@@ -17,6 +17,8 @@ class PrivacySettingsScreen extends StatefulWidget {
 class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   late bool _enabled = TelemetryService.instance.isConsented;
 
+  bool _saving = false;
+
   String _distinctId = '';
 
   @override
@@ -32,15 +34,33 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   }
 
   Future<void> _toggle(bool value) async {
-    setState(() => _enabled = value);
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _enabled = value;
+    });
     await TelemetryService.instance.setConsent(enabled: value);
+    final actual = TelemetryService.instance.isConsented;
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      // 本地保存失败时回到真实状态，避免开关与实际状态不一致。
+      _enabled = actual;
+    });
+    if (actual != value) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('保存设置失败，请重试'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     if (value) await _loadDistinctId();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          value ? '已开启匿名使用数据收集' : '已退出匿名使用数据收集，之后不再上报任何数据',
-        ),
+        content: Text(value ? '已开启匿名使用数据收集' : '已退出匿名使用数据收集，之后不再上报任何数据'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -82,12 +102,10 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
             padding: EdgeInsets.zero,
             itemBuilder: (_, __) => SwitchListTile(
               value: _enabled,
-              onChanged: _toggle,
+              onChanged: _saving ? null : _toggle,
               contentPadding: const EdgeInsets.symmetric(horizontal: 16),
               title: const Text('收集匿名使用数据'),
-              subtitle: Text(
-                _enabled ? '当前状态：已开启' : '当前状态：已退出，不会上报任何数据',
-              ),
+              subtitle: Text(_enabled ? '当前状态：已开启' : '当前状态：已退出，不会上报任何数据'),
             ),
           ),
           if (!TelemetryService.instance.isConfigured) ...[
@@ -105,12 +123,9 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
             outerRadius: 20,
             padding: EdgeInsets.zero,
             itemBuilder: (_, __) => M3EListItem(
-              leading:
-                  Icon(Icons.fingerprint, color: scheme.onSurfaceVariant),
+              leading: Icon(Icons.fingerprint, color: scheme.onSurfaceVariant),
               headline: const Text('匿名设备 ID'),
-              supportingText: Text(
-                _distinctId.isEmpty ? '—' : _distinctId,
-              ),
+              supportingText: Text(_distinctId.isEmpty ? '—' : _distinctId),
             ),
           ),
           const SizedBox(height: 20),
@@ -119,12 +134,12 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
             outerRadius: 20,
             padding: EdgeInsets.zero,
             itemBuilder: (_, __) => M3EListItem(
-              leading: Icon(Icons.developer_mode_outlined,
-                  color: scheme.onSurfaceVariant),
-              headline: const Text('构建环境'),
-              supportingText: Text(
-                '${TelemetryService.envName}（事件属性 app_env）',
+              leading: Icon(
+                Icons.developer_mode_outlined,
+                color: scheme.onSurfaceVariant,
               ),
+              headline: const Text('构建环境'),
+              supportingText: Text('${TelemetryService.envName}（事件属性 app_env）'),
             ),
           ),
           const SizedBox(height: 20),
