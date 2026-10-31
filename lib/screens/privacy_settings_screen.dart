@@ -89,6 +89,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final buildEnabled = TelemetryService.instance.isEnabledForBuild;
 
     return Scaffold(
       appBar: AppBar(title: const Text('隐私与遥测')),
@@ -102,13 +103,27 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
             padding: EdgeInsets.zero,
             itemBuilder: (_, __) => SwitchListTile(
               value: _enabled,
-              onChanged: _saving ? null : _toggle,
+              onChanged: !buildEnabled || _saving ? null : _toggle,
               contentPadding: const EdgeInsets.symmetric(horizontal: 16),
               title: const Text('收集匿名使用数据'),
-              subtitle: Text(_enabled ? '当前状态：已开启' : '当前状态：已退出，不会上报任何数据'),
+              subtitle: Text(
+                !buildEnabled
+                    ? '当前为 debug 构建，不会上报任何数据'
+                    : _enabled
+                    ? '当前状态：已开启'
+                    : '当前状态：已退出，不会上报任何数据',
+              ),
             ),
           ),
-          if (!TelemetryService.instance.isConfigured) ...[
+          if (!buildEnabled) ...[
+            const SizedBox(height: 8),
+            Text(
+              '当前为 debug 构建，遥测已关闭；profile / release 构建不受影响。',
+              style: textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ] else if (!TelemetryService.instance.isConfigured) ...[
             const SizedBox(height: 8),
             Text(
               '提示：当前平台未成功初始化遥测 SDK，实际上不会上报任何数据。',
@@ -139,7 +154,11 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                 color: scheme.onSurfaceVariant,
               ),
               headline: const Text('构建环境'),
-              supportingText: Text('${TelemetryService.envName}（事件属性 app_env）'),
+              supportingText: Text(
+                buildEnabled
+                    ? '${TelemetryService.envName}（事件属性 app_env）'
+                    : '${TelemetryService.envName}（遥测已关闭）',
+              ),
             ),
           ),
           const SizedBox(height: 20),

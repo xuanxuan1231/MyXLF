@@ -62,6 +62,7 @@ void main() {
         });
     log = _ChannelLog();
     TelemetryService.instance.resetForTest();
+    TelemetryService.enableForTest();
   });
 
   tearDown(() {

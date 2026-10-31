@@ -18,7 +18,7 @@ import '../config.dart';
 /// - **告知与退出**：首次启动展示「可选访问信息收集」说明页
 ///   （`PrivacyConsentScreen`），用户确认前不发送任何数据；之后可随时在
 ///   「账户 → 隐私与遥测」中退出或重新加入。
-/// - **环境分离**：debug / profile / release 三种构建模式以事件属性
+/// - **环境分离**：debug 构建不初始化 SDK，profile / release 以事件属性
 ///   `app_env` 标注，可在 PostHog 中按环境筛选或拆分看板。
 /// - **只收匿名数据**：不上传账号、姓名、成绩等个人数据，也不附带任何
 ///   用户属性。设备 ID 在 Android 上取 ANDROID_ID、iOS 上取 IDFV，
@@ -95,6 +95,22 @@ class TelemetryService {
   /// 用户当前是否同意收集（未选择过视为未同意）。
   bool get isConsented => _consent;
 
+  /// 测试专用：debug 构建默认关闭遥测，测试通过它显式打开。
+  static bool _debugTelemetryEnabled = false;
+
+  /// 当前构建是否允许遥测：debug 默认关闭，profile / release 开启。
+  static bool get _telemetryEnabledByBuild =>
+      !kDebugMode || _debugTelemetryEnabled;
+
+  /// 当前构建是否允许遥测（debug 构建为 false）。
+  bool get isEnabledForBuild => _telemetryEnabledByBuild;
+
+  /// 仅测试：允许 debug 构建初始化并上报遥测。
+  @visibleForTesting
+  static void enableForTest() {
+    _debugTelemetryEnabled = true;
+  }
+
   /// 构建模式标签：debug / profile / release，作为事件属性 `app_env`。
   static String get envName {
     if (kDebugMode) return 'debug';
@@ -106,6 +122,7 @@ class TelemetryService {
   ///
   /// 读取失败时按「未同意」处理：宁可多问一次，也不在状态未知时采集。
   Future<bool> needsConsent() async {
+    if (!_telemetryEnabledByBuild) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getBool(_kConsentKey) == null;
@@ -120,6 +137,8 @@ class TelemetryService {
   /// 顺序很关键：先读取设备 ID、版本号与同意状态，再初始化 SDK 并注册
   /// 公共属性，最后才可能产生任何事件。初始化失败时静默跳过。
   Future<void> init() async {
+    // debug 构建完全不初始化 SDK，避免开发机数据污染真实统计。
+    if (!_telemetryEnabledByBuild) return;
     if (kPosthogApiKey.isEmpty) return;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -245,6 +264,10 @@ class TelemetryService {
   /// 本地写入失败时保持原状态不变，避免出现「内存里已同意、下次启动又未
   /// 同意」的错位，也避免在无法留痕的情况下开始采集。
   Future<void> setConsent({required bool enabled}) async {
+    if (!_telemetryEnabledByBuild) {
+      _consent = false;
+      return;
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_kConsentKey, enabled);
@@ -442,6 +465,7 @@ class TelemetryService {
   /// 重置内部状态，仅用于测试。
   @visibleForTesting
   void resetForTest() {
+    _debugTelemetryEnabled = false;
     _configured = false;
     _consent = false;
     _deviceId = '';

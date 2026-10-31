@@ -28,7 +28,7 @@ fvm flutter test test/e2e_test.dart   # 手动运行端到端测试
 
 ## 遥测与隐私
 
-应用集成了 [PostHog](https://posthog.com) 匿名使用统计（装机量、活跃度、版本分布、崩溃与稳定性），debug / profile / release 三种构建通过事件属性 `app_env` 区分。首次启动会在登录页之前展示「可选访问信息收集」说明页（默认勾选，可取消），之后随时可在「账户 → 隐私与遥测」中退出或重新加入。**不收集**账号、姓名、成绩等任何个人数据。详见 [docs/telemetry.md](docs/telemetry.md)。
+应用集成了 [PostHog](https://posthog.com) 匿名使用统计（装机量、活跃度、版本分布、崩溃与稳定性），debug 构建默认关闭遥测，profile / release 通过事件属性 `app_env` 区分。首次启动会在登录页之前展示「可选访问信息收集」说明页（默认勾选，可取消），之后随时可在「账户 → 隐私与遥测」中退出或重新加入。**不收集**账号、姓名、成绩等任何个人数据。详见 [docs/telemetry.md](docs/telemetry.md)。
 
 ## CI
 

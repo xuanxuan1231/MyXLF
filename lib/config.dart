@@ -40,9 +40,10 @@ const String kGithubUrl = 'https://github.com/$kGithubOwner/$kGithubRepo';
 
 /// PostHog 遥测项目 API key（项目 token，可公开分发的客户端 key）。
 ///
-/// debug / profile / release 三种构建共用同一项目，事件通过 `app_env`
-/// 属性区分环境。
-const String kPosthogApiKey = 'phc_sWRfhQKVLNn2YkrfhhR7CdSE3LCRYoLsns5oN9rSsaVr';
+/// debug 构建不初始化遥测；profile / release 共用同一项目，事件通过
+/// `app_env` 属性区分环境。
+const String kPosthogApiKey =
+    'phc_sWRfhQKVLNn2YkrfhhR7CdSE3LCRYoLsns5oN9rSsaVr';
 
 /// PostHog 采集地址（美国云）。
 ///

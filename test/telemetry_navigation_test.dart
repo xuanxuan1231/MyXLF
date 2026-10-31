@@ -35,6 +35,7 @@ void main() {
           };
         });
     TelemetryService.instance.resetForTest();
+    TelemetryService.enableForTest();
     SharedPreferences.setMockInitialValues({'telemetry_consent': true});
     await TelemetryService.instance.init();
     calls.clear();

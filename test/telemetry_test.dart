@@ -6,6 +6,11 @@ import 'package:xlf/services/telemetry.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  setUp(() {
+    TelemetryService.instance.resetForTest();
+    TelemetryService.enableForTest();
+  });
+
   group('遥测同意状态', () {
     test('首次启动需要展示「可选访问信息收集」说明页', () async {
       SharedPreferences.setMockInitialValues({});
@@ -38,6 +43,18 @@ void main() {
   group('构建环境标签', () {
     test('测试（debug）构建标记为 debug', () {
       expect(TelemetryService.envName, 'debug');
+    });
+
+    test('debug 构建默认关闭遥测且不展示说明页', () async {
+      TelemetryService.instance.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+
+      expect(TelemetryService.instance.isEnabledForBuild, isFalse);
+      expect(await TelemetryService.instance.needsConsent(), isFalse);
+
+      await TelemetryService.instance.init();
+      expect(TelemetryService.instance.isConfigured, isFalse);
+      expect(TelemetryService.instance.isEnabled, isFalse);
     });
   });
 }

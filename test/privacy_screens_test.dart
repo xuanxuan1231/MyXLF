@@ -26,12 +26,13 @@ void main() {
     calls.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      calls.add(call);
-      if (call.method == 'distinctId') return 'device-id-from-sdk';
-      if (call.method == 'isOptOut') return false;
-      return null;
-    });
+          calls.add(call);
+          if (call.method == 'distinctId') return 'device-id-from-sdk';
+          if (call.method == 'isOptOut') return false;
+          return null;
+        });
     TelemetryService.instance.resetForTest();
+    TelemetryService.enableForTest();
   });
 
   tearDown(() {
@@ -44,10 +45,9 @@ void main() {
     SharedPreferences.setMockInitialValues({});
 
     useTallSurface(tester);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light,
-      home: const PrivacyConsentScreen(),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const PrivacyConsentScreen()),
+    );
 
     final checkbox = tester.widget<CheckboxListTile>(
       find.byType(CheckboxListTile),
@@ -62,10 +62,9 @@ void main() {
     SharedPreferences.setMockInitialValues({});
 
     useTallSurface(tester);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light,
-      home: const PrivacyConsentScreen(),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const PrivacyConsentScreen()),
+    );
 
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pump();
@@ -85,10 +84,9 @@ void main() {
   testWidgets('说明页文案不再声称「不会分享给第三方」', (tester) async {
     SharedPreferences.setMockInitialValues({});
     useTallSurface(tester);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light,
-      home: const PrivacyConsentScreen(),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const PrivacyConsentScreen()),
+    );
 
     expect(find.textContaining('不会分享给第三方'), findsNothing);
     expect(find.textContaining('不用于广告或个性化营销'), findsOneWidget);
@@ -100,13 +98,14 @@ void main() {
     await TelemetryService.instance.setConsent(enabled: true);
 
     useTallSurface(tester);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light,
-      home: const PrivacySettingsScreen(),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const PrivacySettingsScreen()),
+    );
     await tester.pump();
 
-    final switchTile = tester.widget<SwitchListTile>(find.byType(SwitchListTile));
+    final switchTile = tester.widget<SwitchListTile>(
+      find.byType(SwitchListTile),
+    );
     expect(switchTile.value, isTrue);
 
     await tester.tap(find.byType(SwitchListTile));
@@ -122,10 +121,9 @@ void main() {
     await TelemetryService.instance.setConsent(enabled: true);
 
     useTallSurface(tester);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light,
-      home: const PrivacySettingsScreen(),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const PrivacySettingsScreen()),
+    );
     await tester.pump();
 
     expect(find.text('匿名设备 ID'), findsOneWidget);

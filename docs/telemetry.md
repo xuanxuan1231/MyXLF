@@ -16,22 +16,25 @@ PostHog 中查看各项指标。
 核心逻辑在 [`lib/services/telemetry.dart`](../lib/services/telemetry.dart)
 （`TelemetryService`），初始化在 [`lib/main.dart`](../lib/main.dart)。
 
-## 三种环境分开（debug / profile / release）
+## 构建环境（debug 默认关闭）
 
-三种构建模式共用同一个 PostHog 项目，事件自动带上 `app_env` 属性：
+debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何数据，避免开发机
+安装污染真实统计。profile / release 共用同一个 PostHog 项目，事件自动带上
+`app_env` 属性：
 
-| 构建模式 | `app_env` 值 |
-| --- | --- |
-| `flutter run`（默认） | `debug` |
-| `flutter run --profile` | `profile` |
-| `flutter build`（release） | `release` |
+| 构建模式 | 行为 | `app_env` |
+| --- | --- | --- |
+| `flutter run`（默认） | 不初始化、不上报 | — |
+| `flutter run --profile` | 正常上报 | `profile` |
+| `flutter build`（release） | 正常上报 | `release` |
 
 在 PostHog 中按 `app_env` 属性筛选即可分开查看，也可以用它拆分看板：
 
 - **Insight 内筛选**：Filter → Event property → `app_env`；
 - **Dashboard 拆分**：对任意 Insight 选择 Breakdown → `app_env`。
 
-> 调试日志只在 `debug` 构建中输出（`PostHogConfig.debug`）。
+> 遥测相关测试通过 `TelemetryService.enableForTest()` 临时打开 debug 构建的
+> 上报路径，仅用于测试，不影响真实 debug 运行。
 
 ## 用户告知与退出
 
