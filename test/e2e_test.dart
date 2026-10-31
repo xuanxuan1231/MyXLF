@@ -1,6 +1,7 @@
 // 端到端联调测试（临时，验证与真实服务器交互）。
 // 运行：XLF_E2E_USERNAME=账号 XLF_E2E_PASSWORD=密码 fvm flutter test test/e2e_test.dart
 // CI 中通过 --exclude-tags e2e 跳过；未提供账号密码时自动跳过。
+// 请勿使用已停用的测试账号；连续输错密码会触发平台锁定。
 @Tags(['e2e'])
 library;
 

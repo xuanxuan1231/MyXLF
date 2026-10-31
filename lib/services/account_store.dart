@@ -260,6 +260,25 @@ class AccountStore {
     );
   }
 
+  /// 会话过期后用户重新登录成功时，更新安全存储中的密码。
+  Future<void> updatePassword(String username, String password) async {
+    await load();
+    final idx = _accounts.indexWhere((a) => a.username == username);
+    if (idx < 0) return;
+    try {
+      await _vault.write(username, password);
+      _legacyPasswords.remove(username);
+    } catch (e) {
+      _recordStorageError(e, '保存');
+      return;
+    }
+    _accounts[idx] = _accounts[idx].copyWith(
+      password: password,
+      lastLoginAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _save();
+  }
+
   /// 更新某账号的最近登录时间。
   Future<void> touch(String username) async {
     await load();

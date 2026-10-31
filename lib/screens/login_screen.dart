@@ -4,14 +4,18 @@ import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../services/xlf_client.dart';
+import '../widgets/session_recovery.dart';
 import 'main_shell.dart';
 
 /// 登录页（添加新账号或首次进入）。
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key, this.initialError});
+  const LoginScreen({super.key, this.initialError, this.initialUsername});
 
   /// 进入登录页时展示的错误信息（如自动登录失败）。
   final String? initialError;
+
+  /// 预填的用户名（自动登录失败后方便直接重试）。
+  final String? initialUsername;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -26,6 +30,10 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    final initialUsername = widget.initialUsername?.trim() ?? '';
+    if (initialUsername.isNotEmpty) {
+      _usernameController.text = initialUsername;
+    }
     if (widget.initialError != null && widget.initialError!.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -51,9 +59,9 @@ class _LoginScreenState extends State<LoginScreen> {
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
     if (username.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入用户名和密码')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请输入用户名和密码')));
       return;
     }
     setState(() => _submitting = true);
@@ -73,10 +81,16 @@ class _LoginScreenState extends State<LoginScreen> {
       // 通知系统本次输入已完成，允许密码管理器（如 HyperOS 密码管家）弹出“保存密码”提示。
       TextInput.finishAutofillContext();
       await enterShell(context, account, result);
+    } on XlfAccountLockedException catch (e) {
+      if (!mounted) return;
+      await showAccountLockedDialog(e.message);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString()), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(e.toString()),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -117,9 +131,9 @@ class _LoginScreenState extends State<LoginScreen> {
               Text(
                 '学生成绩分析报告',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
               ),
               const SizedBox(height: 32),
               TextField(
