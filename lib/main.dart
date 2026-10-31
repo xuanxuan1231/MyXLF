@@ -5,9 +5,11 @@ import 'package:material_ui/material_ui.dart';
 
 import 'screens/bootstrap_screen.dart';
 import 'services/telemetry.dart';
+import 'services/update_checker.dart';
 import 'services/xlf_client.dart';
 import 'theme/app_theme.dart';
 import 'widgets/session_recovery.dart';
+import 'widgets/update_dialog.dart';
 
 void main() {
   runZonedGuarded(
@@ -51,6 +53,8 @@ void main() {
       // 前台事件；onForeground 内部幂等，不会与观察者重复计数。
       WidgetsBinding.instance.addPostFrameCallback((_) {
         unawaited(TelemetryService.instance.onForeground());
+        // 启动时自动检查更新；失败或开关关闭时静默跳过。
+        unawaited(_checkUpdatesOnStartup());
       });
     },
     (error, stack) {
@@ -58,6 +62,15 @@ void main() {
       unawaited(TelemetryService.instance.reportZoneError(error, stack));
     },
   );
+}
+
+/// 启动时静默检查更新：只有发现新版本才弹窗，网络失败不打扰用户。
+Future<void> _checkUpdatesOnStartup() async {
+  final info = await UpdateChecker.instance.checkAutomatically();
+  if (info == null || !info.isUpdateAvailable) return;
+  final context = appNavigatorKey.currentContext;
+  if (context == null || !context.mounted) return;
+  await showUpdateDialog(context, info);
 }
 
 class XlfApp extends StatelessWidget {

@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
 
@@ -45,17 +46,55 @@ class UpdateChecker {
 
   static final UpdateChecker instance = UpdateChecker._();
 
+  /// 「启动时自动检查更新」开关（SharedPreferences 键）。
+  static const String autoCheckPreferenceKey = 'update_auto_check';
+
   /// 独立 Dio 实例：请求 GitHub 公开 API，不继承登录会话与自签名证书配置。
-  final Dio _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 10),
-    headers: const {'Accept': 'application/vnd.github+json'},
-  ));
+  final Dio _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+      headers: const {'Accept': 'application/vnd.github+json'},
+    ),
+  );
 
   /// 当前应用版本号（不含构建号）。
   Future<String> currentVersion() async {
     final info = await PackageInfo.fromPlatform();
     return info.version;
+  }
+
+  /// 启动时是否自动检查更新；从未设置过时默认开启。
+  Future<bool> isAutoCheckEnabled() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(autoCheckPreferenceKey) ?? true;
+    } catch (_) {
+      // 读取失败时保持默认行为：启动时检查一次。
+      return true;
+    }
+  }
+
+  /// 保存「启动时自动检查更新」开关；返回是否写入成功。
+  Future<bool> setAutoCheckEnabled(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return await prefs.setBool(autoCheckPreferenceKey, enabled);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 启动时使用的静默检查：开关关闭或检查失败时返回 null。
+  ///
+  /// 自动检查不应因网络问题打扰用户，也不应阻断启动流程。
+  Future<UpdateInfo?> checkAutomatically() async {
+    if (!await isAutoCheckEnabled()) return null;
+    try {
+      return await check();
+    } catch (_) {
+      return null;
+    }
   }
 
   /// 检查 GitHub 最新稳定 Release。
