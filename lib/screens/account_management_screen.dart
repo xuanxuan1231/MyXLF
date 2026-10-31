@@ -45,9 +45,12 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
   }
 
   Future<void> _addAccount() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const LoginScreen()));
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const LoginScreen(),
+        settings: const RouteSettings(name: 'Login'),
+      ),
+    );
     // 添加成功后 LoginScreen 会直接进入主界面；若返回则刷新列表。
     await _refresh();
   }

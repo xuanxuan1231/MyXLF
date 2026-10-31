@@ -81,6 +81,7 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
           title: widget.title,
           fileNamePrefix: 'xlf_answer',
         ),
+        settings: const RouteSettings(name: 'Image Viewer'),
       ),
     );
   }

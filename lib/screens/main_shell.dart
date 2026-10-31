@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../models/models.dart';
 import '../services/account_store.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import 'account_screen.dart';
 import 'home_screen.dart';
@@ -41,14 +44,21 @@ Future<void> enterShell(
     );
   }
   Navigator.of(context).pushAndRemoveUntil(
-    MaterialPageRoute(builder: (_) => MainShell(account: saved, loginResult: result)),
+    MaterialPageRoute(
+      builder: (_) => MainShell(account: saved, loginResult: result),
+      settings: const RouteSettings(name: 'Main Shell'),
+    ),
     (route) => false,
   );
 }
 
 /// 主界面：底部导航栏（首页 + 账户）。
 class MainShell extends StatefulWidget {
-  const MainShell({super.key, required this.account, required this.loginResult});
+  const MainShell({
+    super.key,
+    required this.account,
+    required this.loginResult,
+  });
 
   final Account account;
   final LoginResult loginResult;
@@ -61,6 +71,13 @@ class _MainShellState extends State<MainShell> {
   int _index = 0;
   late Account _account = widget.account;
   late LoginResult _loginResult = widget.loginResult;
+
+  @override
+  void initState() {
+    super.initState();
+    // 初始 Tab 也要计入页面浏览，不能只在用户点击 Tab 时上报。
+    unawaited(TelemetryService.instance.captureScreen('Home'));
+  }
 
   /// 切换账号（由账户管理页调用）。
   void _switchAccount(Account account, LoginResult result) {
@@ -99,7 +116,15 @@ class _MainShellState extends State<MainShell> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        onDestinationSelected: (i) {
+          setState(() => _index = i);
+          // Tab 切换也计入页面浏览（$screen 事件）。
+          unawaited(
+            TelemetryService.instance.captureScreen(
+              i == 0 ? 'Home' : 'Account',
+            ),
+          );
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
