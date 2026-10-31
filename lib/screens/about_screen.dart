@@ -203,7 +203,7 @@ class _AboutScreenState extends State<AboutScreen> {
           const SizedBox(height: 24),
           Center(
             child: Text(
-              '© ${DateTime.now().year} $kGithubOwner',
+              '© ${DateTime.now().year} HelloSWX',
               style: textTheme.bodySmall?.copyWith(
                 color: scheme.onSurfaceVariant,
               ),
