@@ -4,6 +4,7 @@ import 'package:m3e_core/m3e_core.dart';
 import '../models/models.dart';
 import '../services/account_store.dart';
 import '../services/xlf_client.dart';
+import '../widgets/session_recovery.dart';
 import 'login_screen.dart';
 
 /// 账户管理页：添加 / 删除 / 设为默认账号（点击账号切换）。
@@ -20,7 +21,8 @@ class AccountManagementScreen extends StatefulWidget {
   final void Function(String username)? onDefaultChanged;
 
   @override
-  State<AccountManagementScreen> createState() => _AccountManagementScreenState();
+  State<AccountManagementScreen> createState() =>
+      _AccountManagementScreenState();
 }
 
 class _AccountManagementScreenState extends State<AccountManagementScreen> {
@@ -65,14 +67,31 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       );
       return;
     }
-    showDialog(
+    // 加载框用对话框自身的 context 关闭，避免用户用返回键关掉加载框后，
+    // 这里再去 pop 下层页面（会把账户页甚至主界面一起弹掉）。
+    final loadingContextKey = GlobalKey();
+    var loadingOpen = true;
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(child: M3ECircularProgressIndicator()),
+      builder: (_) => Center(
+        key: loadingContextKey,
+        child: const M3ECircularProgressIndicator(),
+      ),
     );
+    void closeLoading() {
+      if (!loadingOpen) return;
+      loadingOpen = false;
+      final loadingContext = loadingContextKey.currentContext;
+      if (loadingContext == null) return; // 已被返回键关闭
+      Navigator.of(loadingContext).pop();
+    }
+
     try {
-      final result =
-          await XlfClient.instance.login(account.username, account.password);
+      final result = await XlfClient.instance.login(
+        account.username,
+        account.password,
+      );
       final fresh = account.copyWith(
         schoolName: result.schoolName,
         className: result.className,
@@ -86,7 +105,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       await AccountStore.instance.addOrUpdate(fresh);
       final storageError = AccountStore.instance.consumeLastError();
       if (!mounted) return;
-      Navigator.of(context).pop(); // 关闭加载框
+      closeLoading(); // 关闭加载框
       if (storageError != null) {
         scaffold.showSnackBar(
           SnackBar(
@@ -96,12 +115,21 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
         );
       }
       widget.onSwitchAccount(fresh, result);
-      Navigator.of(context).pop(); // 返回主界面
-    } catch (e) {
       if (!mounted) return;
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(); // 返回主界面
+    } on XlfAccountLockedException catch (e) {
+      if (!mounted) return;
+      closeLoading();
+      await showAccountLockedDialog(e.message);
+    } catch (e) {
+      // 凭据失效等情况：拒绝切换，停留在本页，当前账号与会话不受影响。
+      if (!mounted) return;
+      closeLoading();
       scaffold.showSnackBar(
-        SnackBar(content: Text(e.toString()), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(e is XlfException ? e.message : '切换账号失败，请稍后重试'),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }
@@ -181,10 +209,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
             ),
             M3EListItem(
               leading: Icon(Icons.delete_outline, color: scheme.error),
-              headline: Text(
-                '删除账号',
-                style: TextStyle(color: scheme.error),
-              ),
+              headline: Text('删除账号', style: TextStyle(color: scheme.error)),
             ),
           ],
         ),
@@ -226,7 +251,9 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
             radius: 22,
             backgroundColor: scheme.primaryContainer,
             foregroundColor: scheme.onPrimaryContainer,
-            child: Text(account.username.isNotEmpty ? account.username[0] : '?'),
+            child: Text(
+              account.username.isNotEmpty ? account.username[0] : '?',
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -246,15 +273,18 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 1),
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
                           color: scheme.primaryContainer,
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
                           '默认',
-                          style: textTheme.labelSmall
-                              ?.copyWith(color: scheme.primary),
+                          style: textTheme.labelSmall?.copyWith(
+                            color: scheme.primary,
+                          ),
                         ),
                       ),
                     ],
@@ -265,8 +295,9 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
                     account.schoolName ?? '',
                     account.className ?? '',
                   ].where((s) => s.isNotEmpty).join(' · '),
-                  style: textTheme.bodyMedium
-                      ?.copyWith(color: scheme.onSurfaceVariant),
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),

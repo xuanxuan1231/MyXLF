@@ -7,6 +7,7 @@ import 'screens/bootstrap_screen.dart';
 import 'services/telemetry.dart';
 import 'services/xlf_client.dart';
 import 'theme/app_theme.dart';
+import 'widgets/session_recovery.dart';
 
 void main() {
   runZonedGuarded(
@@ -43,6 +44,7 @@ void main() {
       WidgetsBinding.instance.addObserver(TelemetryLifecycleObserver());
 
       XlfClient.instance.init();
+      installSessionRecovery();
       runApp(const XlfApp());
 
       // 初始 resumed 状态在 addObserver 之前就已分发，这里显式补一次冷启动
@@ -65,6 +67,8 @@ class XlfApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'MyXLF',
+      navigatorKey: appNavigatorKey,
+      scaffoldMessengerKey: appScaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
