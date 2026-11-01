@@ -48,7 +48,7 @@ const String kPosthogApiKey =
 /// PostHog 采集地址（美国云）。
 ///
 /// 自建实例时改为自己的域名即可。
-const String kPosthogHost = 'https://us.i.posthog.com';
+const String kPosthogHost = 'https://instrumental-sense.helloswx.top';
 
 /// PostHog 隐私说明（「隐私与遥测」设置页展示）。
 const String kPosthogPrivacyUrl = 'https://posthog.com/privacy';
