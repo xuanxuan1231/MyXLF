@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:ui' show lerpDouble;
 
 import 'package:material_ui/material_ui.dart';
+import 'package:m3e_core/m3e_core.dart';
+import 'package:motor/motor.dart';
 
 import '../models/models.dart';
 import '../services/account_store.dart';
@@ -114,9 +117,9 @@ class _MainShellState extends State<MainShell> {
           ),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) {
+      bottomNavigationBar: _FloatingNavigationBar(
+        index: _index,
+        onSelected: (i) {
           setState(() => _index = i);
           // Tab 切换也计入页面浏览（$screen 事件）。
           unawaited(
@@ -125,18 +128,195 @@ class _MainShellState extends State<MainShell> {
             ),
           );
         },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: '首页',
+      ),
+    );
+  }
+}
+
+/// M3E 悬浮工具栏样式底栏：悬浮于页面底部，选中项使用胶囊高亮。
+class _FloatingNavigationBar extends StatelessWidget {
+  const _FloatingNavigationBar({required this.index, required this.onSelected});
+
+  final int index;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: Center(
+        heightFactor: 1,
+        child: M3EHorizontalFloatingToolbar(
+          expanded: true,
+          decoration: const M3EFloatingToolbarDecoration(
+            contentPadding: EdgeInsets.all(8),
+            expandedShadowElevation: 3,
           ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: '账户',
+          content: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _FloatingNavDestination(
+                icon: Icons.home_outlined,
+                selectedIcon: Icons.home_rounded,
+                label: '首页',
+                selected: index == 0,
+                onTap: () => onSelected(0),
+              ),
+              const SizedBox(width: 4),
+              _FloatingNavDestination(
+                icon: Icons.person_outline_rounded,
+                selectedIcon: Icons.person_rounded,
+                label: '账户',
+                selected: index == 1,
+                onTap: () => onSelected(1),
+              ),
+            ],
           ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FloatingNavDestination extends StatefulWidget {
+  const _FloatingNavDestination({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  State<_FloatingNavDestination> createState() =>
+      _FloatingNavDestinationState();
+}
+
+/// 与 m3e_core demo 的 ExpressiveNavBarTab 一致：选中项用弹簧动画展开，
+/// 图标保持居中，文字随宽度增长淡入。
+class _FloatingNavDestinationState extends State<_FloatingNavDestination>
+    with SingleTickerProviderStateMixin {
+  static const _motion = M3EMotion.expressiveSpatialFast;
+
+  late final SingleMotionController _controller = SingleMotionController(
+    motion: _motion.toMotion(),
+    vsync: this,
+    initialValue: widget.selected ? 1.0 : 0.0,
+  );
+
+  @override
+  void didUpdateWidget(covariant _FloatingNavDestination oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selected != oldWidget.selected) {
+      _controller.animateTo(widget.selected ? 1.0 : 0.0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Semantics(
+      button: true,
+      selected: widget.selected,
+      label: widget.label,
+      excludeSemantics: true,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          final progress = _controller.value.clamp(0.0, 1.0);
+          final width = lerpDouble(48, 110, progress)!;
+          final selectedBg = scheme.primaryContainer.withValues(alpha: 0.6);
+          final selectedFg = scheme.primary;
+          final unselectedFg = scheme.onSurfaceVariant;
+          final contentColor = widget.selected ? selectedFg : unselectedFg;
+
+          return Container(
+            width: width,
+            height: 48,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: widget.selected ? selectedBg : Colors.transparent,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: () {
+                  M3EHapticFeedback.light.apply();
+                  widget.onTap();
+                },
+                overlayColor: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.pressed) ||
+                      states.contains(WidgetState.focused)) {
+                    return contentColor.withValues(alpha: 0.12);
+                  }
+                  if (states.contains(WidgetState.hovered)) {
+                    return contentColor.withValues(alpha: 0.08);
+                  }
+                  return null;
+                }),
+                child: ClipRect(
+                  child: Center(
+                    child: OverflowBox(
+                      minWidth: 0,
+                      maxWidth: 140,
+                      minHeight: 0,
+                      maxHeight: 48,
+                      alignment: Alignment.center,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            widget.selected ? widget.selectedIcon : widget.icon,
+                            color: contentColor,
+                            size: 24,
+                          ),
+                          if (progress > 0.01)
+                            ClipRect(
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                widthFactor: progress,
+                                child: Opacity(
+                                  opacity: progress,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(left: 6),
+                                    child: Text(
+                                      widget.label,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.clip,
+                                      style: textTheme.bodyMedium?.copyWith(
+                                        color: contentColor,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
