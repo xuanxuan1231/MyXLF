@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../config.dart';
 import '../services/telemetry.dart';
+import '../theme/responsive.dart';
 import '../widgets/telemetry_notice.dart';
 
 /// 隐私与遥测设置页：随时开启 / 退出匿名使用数据收集。
@@ -95,7 +96,11 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('隐私与遥测')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        padding: adaptivePadding(
+          context,
+          maxWidth: 760,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        ),
         children: [
           // 状态概览：一眼看清当前是否在上报数据。
           _buildStatusCard(

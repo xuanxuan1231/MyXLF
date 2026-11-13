@@ -4,6 +4,7 @@ import 'package:m3e_core/m3e_core.dart';
 import '../models/models.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
+import '../theme/responsive.dart';
 
 /// 登录历史页：展示网页版账号的最近登录日志。
 class LoginHistoryScreen extends StatefulWidget {
@@ -49,7 +50,17 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('登录历史')),
+      appBar: AppBar(
+        title: const Text('登录历史'),
+        actions: [
+          if (context.showRefreshAction)
+            IconButton(
+              tooltip: '刷新登录历史',
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: _buildBody(),
     );
   }
@@ -58,15 +69,18 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
     if (_loading) return const Center(child: M3ECircularProgressIndicator());
     if (_error != null) {
       return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              M3EFilledButton(onPressed: _load, child: const Text('重试')),
-            ],
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(_error!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                M3EFilledButton(onPressed: _load, child: const Text('重试')),
+              ],
+            ),
           ),
         ),
       );
@@ -90,7 +104,10 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
                     const Text('暂无登录记录'),
                     const SizedBox(height: 4),
                     Text(
-                      '下拉刷新重试',
+                      context.showRefreshAction
+                          ? '下拉刷新或点击右上角刷新重试'
+                          : '下拉刷新重试',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 12,
                         color: scheme.onSurfaceVariant,
@@ -110,7 +127,11 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+            padding: adaptivePadding(
+              context,
+              maxWidth: 760,
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+            ),
             child: Text(
               '最近 30 天共 ${_entries.length} 次登录',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -124,7 +145,11 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
               padding: EdgeInsets.zero,
               gap: 2,
               outerRadius: 24,
-              listPadding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              listPadding: adaptivePadding(
+                context,
+                maxWidth: 760,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              ),
               physics: const AlwaysScrollableScrollPhysics(),
               itemBuilder: (_, i) => _buildEntry(_entries[i]),
             ),

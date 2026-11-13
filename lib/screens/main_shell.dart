@@ -9,6 +9,7 @@ import '../models/models.dart';
 import '../services/account_store.dart';
 import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
+import '../theme/responsive.dart';
 import 'account_screen.dart';
 import 'home_screen.dart';
 
@@ -98,37 +99,158 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
+  /// 切换 Tab 并上报页面浏览。
+  void _selectTab(int index) {
+    if (index == _index) return;
+    setState(() => _index = index);
+    // Tab 切换也计入页面浏览（$screen 事件）。
+    unawaited(
+      TelemetryService.instance.captureScreen(
+        index == 0 ? 'Home' : 'Account',
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final body = IndexedStack(
+      index: _index,
+      children: [
+        HomeScreen(
+          key: ValueKey('home_${_account.username}'),
+          account: _account,
+          loginResult: _loginResult,
+        ),
+        AccountScreen(
+          account: _account,
+          loginResult: _loginResult,
+          onSwitchAccount: _switchAccount,
+          onDefaultChanged: _changeDefault,
+        ),
+      ],
+    );
+
+    // 桌面 / 平板横屏：侧边导航；手机与平板竖屏：M3E 悬浮底部导航。
+    if (context.useSideNavigation) {
+      return Scaffold(
+        body: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SafeArea(
+              right: false,
+              bottom: false,
+              child: _SideNavigationRail(
+                index: _index,
+                extended: context.useExtendedNavigation,
+                onSelected: _selectTab,
+              ),
+            ),
+            const VerticalDivider(width: 1, thickness: 1),
+            Expanded(
+              child: SafeArea(
+                top: false,
+                left: false,
+                right: false,
+                // 让子页面按「扣除侧边导航后的可用宽度」做响应式判断，
+                // 避免内容区按整个窗口宽度留白而过窄。
+                child: LayoutBuilder(
+                  builder: (context, constraints) => MediaQuery(
+                    data: MediaQuery.of(context).copyWith(
+                      size: Size(
+                        constraints.maxWidth,
+                        constraints.maxHeight,
+                      ),
+                    ),
+                    child: body,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
-      body: IndexedStack(
-        index: _index,
-        children: [
-          HomeScreen(
-            key: ValueKey('home_${_account.username}'),
-            account: _account,
-            loginResult: _loginResult,
-          ),
-          AccountScreen(
-            account: _account,
-            loginResult: _loginResult,
-            onSwitchAccount: _switchAccount,
-            onDefaultChanged: _changeDefault,
-          ),
-        ],
-      ),
+      body: body,
       bottomNavigationBar: _FloatingNavigationBar(
         index: _index,
-        onSelected: (i) {
-          setState(() => _index = i);
-          // Tab 切换也计入页面浏览（$screen 事件）。
-          unawaited(
-            TelemetryService.instance.captureScreen(
-              i == 0 ? 'Home' : 'Account',
-            ),
-          );
-        },
+        onSelected: _selectTab,
       ),
+    );
+  }
+}
+
+/// 桌面侧边导航：宽屏时展开显示文字，窄一些的平板横屏只显示图标。
+class _SideNavigationRail extends StatelessWidget {
+  const _SideNavigationRail({
+    required this.index,
+    required this.extended,
+    required this.onSelected,
+  });
+
+  final int index;
+  final bool extended;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final logo = Image.asset(
+      isDark ? 'assets/images/logo_dark.png' : 'assets/images/logo_light.png',
+      width: 32,
+      height: 32,
+      semanticLabel: 'MyXLF',
+    );
+
+    return NavigationRail(
+      selectedIndex: index,
+      onDestinationSelected: onSelected,
+      extended: extended,
+      minExtendedWidth: 216,
+      // extended 为 true 时由组件自行展示文字标签。
+      labelType: extended ? null : NavigationRailLabelType.all,
+      backgroundColor: scheme.surfaceContainerLow,
+      indicatorColor: scheme.primaryContainer,
+      selectedIconTheme: IconThemeData(color: scheme.onPrimaryContainer),
+      unselectedIconTheme: IconThemeData(color: scheme.onSurfaceVariant),
+      leading: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: logo,
+            ),
+            if (extended) ...[
+              const SizedBox(height: 8),
+              Text(
+                'MyXLF',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      destinations: const [
+        NavigationRailDestination(
+          icon: Icon(Icons.home_outlined),
+          selectedIcon: Icon(Icons.home_rounded),
+          label: Text('首页'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.person_outline_rounded),
+          selectedIcon: Icon(Icons.person_rounded),
+          label: Text('账户'),
+        ),
+      ],
     );
   }
 }

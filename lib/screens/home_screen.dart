@@ -4,6 +4,7 @@ import 'package:m3e_core/m3e_core.dart';
 import '../models/models.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
+import '../theme/responsive.dart';
 import 'total_report_screen.dart';
 
 /// 首页：考试列表 + 学年/学期筛选。
@@ -134,7 +135,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ? widget.loginResult.schoolName
         : (widget.account.schoolName ?? '');
     return Scaffold(
-      appBar: AppBar(title: Text(schoolName.isEmpty ? '成绩查询' : schoolName)),
+      appBar: AppBar(
+        title: Text(schoolName.isEmpty ? '成绩查询' : schoolName),
+        actions: [
+          // 桌面端没有下拉刷新手势，提供显式刷新入口。
+          if (context.showRefreshAction)
+            IconButton(
+              tooltip: '刷新考试列表',
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: Column(
         children: [
           _buildFilterBar(),
@@ -150,40 +162,58 @@ class _HomeScreenState extends State<HomeScreen> {
       prefixIcon: Icon(Icons.tune, size: 18, color: scheme.onSurfaceVariant),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     );
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
+    final yearField = M3EDropdownMenu<String>(
+      items: _yearItems(),
+      singleSelect: true,
+      fieldStyle: fieldStyle.copyWith(hintText: '学年'),
+      onSelectionChanged: _onYearChanged,
+    );
+    final semesterField = M3EDropdownMenu<String>(
+      items: _semesterItems(),
+      singleSelect: true,
+      fieldStyle: fieldStyle.copyWith(hintText: '学期'),
+      onSelectionChanged: _onSemesterChanged,
+    );
+    final queryButton = M3EFilledButton(
+      onPressed: _loading ? null : _load,
+      size: M3EButtonSize.md,
+      child: const Text('查询'),
+    );
+
+    // 平板横屏 / 桌面：筛选条件与查询按钮排成一行，节省纵向空间。
+    final inline = context.screenWidth >= AppBreakpoints.medium;
+    final content = inline
+        ? Row(
             children: [
-              Expanded(
-                child: M3EDropdownMenu<String>(
-                  items: _yearItems(),
-                  singleSelect: true,
-                  fieldStyle: fieldStyle.copyWith(hintText: '学年'),
-                  onSelectionChanged: _onYearChanged,
-                ),
-              ),
+              Expanded(flex: 3, child: yearField),
               const SizedBox(width: 8),
-              Expanded(
-                child: M3EDropdownMenu<String>(
-                  items: _semesterItems(),
-                  singleSelect: true,
-                  fieldStyle: fieldStyle.copyWith(hintText: '学期'),
-                  onSelectionChanged: _onSemesterChanged,
-                ),
-              ),
+              Expanded(flex: 3, child: semesterField),
+              const SizedBox(width: 12),
+              SizedBox(width: 128, child: queryButton),
             ],
-          ),
-          const SizedBox(height: 8),
-          M3EFilledButton(
-            onPressed: _loading ? null : _load,
-            size: M3EButtonSize.md,
-            child: const Text('查询'),
-          ),
-        ],
+          )
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(child: yearField),
+                  const SizedBox(width: 8),
+                  Expanded(child: semesterField),
+                ],
+              ),
+              const SizedBox(height: 8),
+              queryButton,
+            ],
+          );
+
+    return Padding(
+      padding: adaptivePadding(
+        context,
+        maxWidth: 900,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       ),
+      child: content,
     );
   }
 
@@ -194,15 +224,25 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_error != null) {
       final scheme = Theme.of(context).colorScheme;
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: scheme.onSurfaceVariant),
-            const SizedBox(height: 12),
-            Text(_error!),
-            const SizedBox(height: 12),
-            M3EFilledButton(onPressed: _load, child: const Text('重试')),
-          ],
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 48,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: 12),
+                Text(_error!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                M3EFilledButton(onPressed: _load, child: const Text('重试')),
+              ],
+            ),
+          ),
         ),
       );
     }
@@ -228,7 +268,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     const Text('暂无考试记录'),
                     const SizedBox(height: 4),
                     Text(
-                      '下拉刷新重试',
+                      context.showRefreshAction
+                          ? '下拉刷新或点击右上角刷新重试'
+                          : '下拉刷新重试',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 12,
                         color: scheme.onSurfaceVariant,
@@ -249,7 +292,11 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: EdgeInsets.zero,
         gap: 2,
         outerRadius: 24,
-        listPadding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        listPadding: adaptivePadding(
+          context,
+          maxWidth: 900,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        ),
         physics: const AlwaysScrollableScrollPhysics(),
         onTap: (i) => _openExam(_exams[i]),
         itemBuilder: (_, i) => _buildExamItem(_exams[i]),

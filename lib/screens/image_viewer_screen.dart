@@ -1,10 +1,14 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../services/image_actions.dart';
 import '../services/image_store.dart';
+import '../theme/responsive.dart';
 import '../widgets/xlf_image.dart';
 
 /// 全屏图片查看器：支持双指 / 双击缩放、左右翻页、分享、保存到相册。
+///
+/// 桌面端额外支持用左右方向键翻页、Esc 返回。
 class ImageViewerScreen extends StatefulWidget {
   const ImageViewerScreen({
     super.key,
@@ -99,77 +103,110 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     });
   }
 
+  /// 桌面端用左右方向键翻页。
+  void _goTo(int delta) {
+    final next = (_index + delta).clamp(0, widget.urls.length - 1);
+    if (next == _index) return;
+    _pageController.animateToPage(
+      next,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      _goTo(-1);
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      _goTo(1);
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      Navigator.of(context).pop();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
+    return Focus(
+      autofocus: true,
+      onKeyEvent: _handleKeyEvent,
+      child: Scaffold(
         backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        centerTitle: true,
-        title: Text(widget.title),
-        actions: [
-          if (_busy)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 20),
-              child: Center(
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          centerTitle: true,
+          title: Text(widget.title),
+          actions: [
+            if (_busy)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
+              )
+            else ...[
+              IconButton(
+                tooltip: '分享',
+                onPressed: () => _run(_share),
+                icon: const Icon(Icons.share_outlined),
               ),
-            )
-          else ...[
-            IconButton(
-              tooltip: '分享',
-              onPressed: () => _run(_share),
-              icon: const Icon(Icons.share_outlined),
-            ),
-            IconButton(
-              tooltip: '保存到相册',
-              onPressed: () => _run(_save),
-              icon: const Icon(Icons.download_outlined),
-            ),
+              IconButton(
+                tooltip: '保存到相册',
+                onPressed: () => _run(_save),
+                icon: const Icon(Icons.download_outlined),
+              ),
+            ],
           ],
-        ],
-      ),
-      body: Stack(
-        children: [
-          PageView.builder(
-            controller: _pageController,
-            itemCount: widget.urls.length,
-            onPageChanged: (i) => setState(() => _index = i),
-            itemBuilder: (_, i) => _ZoomableImage(url: widget.urls[i]),
-          ),
-          if (widget.urls.length > 1)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: IgnorePointer(
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.55),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          '${_index + 1} / ${widget.urls.length}'
-                          '   双击缩放',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
+        ),
+        body: Stack(
+          children: [
+            PageView.builder(
+              controller: _pageController,
+              itemCount: widget.urls.length,
+              onPageChanged: (i) => setState(() => _index = i),
+              itemBuilder: (_, i) => _ZoomableImage(url: widget.urls[i]),
+            ),
+            if (widget.urls.length > 1)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: IgnorePointer(
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '${_index + 1} / ${widget.urls.length}'
+                            '   双击缩放'
+                            '${context.useSideNavigation ? ' · ← → 切换' : ''}',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
                           ),
                         ),
                       ),
@@ -177,8 +214,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

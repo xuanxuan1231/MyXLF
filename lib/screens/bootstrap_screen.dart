@@ -128,7 +128,11 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
-          child: _buildBody(context, scheme),
+          // 宽屏下限制提示文字的宽度，保持居中且易读。
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: _buildBody(context, scheme),
+          ),
         ),
       ),
     );
