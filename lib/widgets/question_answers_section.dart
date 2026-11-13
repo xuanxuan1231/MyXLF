@@ -30,8 +30,14 @@ enum _AnswerFilter {
   final String label;
 }
 
-class _QuestionAnswersSectionState extends State<QuestionAnswersSection> {
+class _QuestionAnswersSectionState extends State<QuestionAnswersSection>
+    with AutomaticKeepAliveClientMixin {
   _AnswerFilter _filter = _AnswerFilter.all;
+
+  // 逐题列表可能比视口高，滚出视口后若被外层 ListView 回收，
+  // 筛选状态会随 State 一起丢失；保持存活以便上滑回来时仍保留筛选。
+  @override
+  bool get wantKeepAlive => true;
 
   List<QuestionScore> get _filteredQuestions {
     return switch (_filter) {
@@ -56,6 +62,7 @@ class _QuestionAnswersSectionState extends State<QuestionAnswersSection> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (widget.questions.isEmpty) {
       return _emptyCard(icon: Icons.fact_check_outlined, text: '暂无逐题数据');
     }

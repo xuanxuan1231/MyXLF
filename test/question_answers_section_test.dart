@@ -206,4 +206,46 @@ void main() {
     expect(find.text('CD'), findsOneWidget);
     expect(find.textContaining('部分得分'), findsWidgets);
   });
+
+  testWidgets('滚出视口再滚回后保留逐题筛选', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: ListView(
+            controller: controller,
+            children: [
+              QuestionAnswersSection(questions: _questions),
+              // 撑高列表，使「卷面作答」整段可以滚出视口。
+              const SizedBox(height: 1600),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('零分'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('第 22 题'), findsOneWidget);
+    expect(find.textContaining('第 1 题'), findsNothing);
+
+    // 滚到列表底部：卷面作答会离开视口，可能被 ListView 回收。
+    controller.jumpTo(controller.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+
+    // 滚回顶部后，筛选应仍是「零分」，而不是重置为「全部」。
+    controller.jumpTo(0);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('第 22 题'), findsOneWidget);
+    expect(find.textContaining('第 1 题'), findsNothing);
+  });
 }
