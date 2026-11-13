@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:android_id/android_id.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -10,6 +9,8 @@ import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
+import 'locale_name.dart';
+import 'os_version.dart';
 
 /// PostHog 遥测服务：统一管理 SDK 初始化、采集开关与事件上报。
 ///
@@ -118,6 +119,19 @@ class TelemetryService {
     return 'release';
   }
 
+  /// 平台标签（保持与 `Platform.operatingSystem` 一致的取值）。
+  static String get platformName {
+    if (kIsWeb) return 'web';
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android => 'android',
+      TargetPlatform.iOS => 'ios',
+      TargetPlatform.macOS => 'macos',
+      TargetPlatform.windows => 'windows',
+      TargetPlatform.linux => 'linux',
+      TargetPlatform.fuchsia => 'fuchsia',
+    };
+  }
+
   /// 是否需要向用户展示首次启动的「可选访问信息收集」说明页。
   ///
   /// 读取失败时按「未同意」处理：宁可多问一次，也不在状态未知时采集。
@@ -206,17 +220,19 @@ class TelemetryService {
   ///
   /// 其他平台或读取失败返回空串，由 PostHog 生成的随机 UUID 兜底。
   Future<String> _resolveDeviceId() async {
+    // Web 没有可用的原生设备标识，交给 PostHog 生成随机 UUID。
+    if (kIsWeb) return '';
     try {
-      if (Platform.isAndroid) {
-        return await const AndroidId().getId() ?? '';
-      }
-      if (Platform.isIOS) {
-        return (await DeviceInfoPlugin().iosInfo).identifierForVendor ?? '';
-      }
+      return switch (defaultTargetPlatform) {
+        TargetPlatform.android => await const AndroidId().getId() ?? '',
+        TargetPlatform.iOS =>
+          (await DeviceInfoPlugin().iosInfo).identifierForVendor ?? '',
+        _ => '',
+      };
     } catch (_) {
       // 取不到设备标识时回退到 SDK 生成的随机 ID。
+      return '';
     }
-    return '';
   }
 
   /// 注册所有事件共用的属性，便于按环境 / 平台 / 版本拆分统计。
@@ -226,9 +242,9 @@ class TelemetryService {
     await Posthog().register('app_env', envName);
     await Posthog().register('app_version', info.version);
     await Posthog().register('app_build', info.buildNumber);
-    await Posthog().register('platform', Platform.operatingSystem);
-    await Posthog().register('os_version', Platform.operatingSystemVersion);
-    await Posthog().register('locale', Platform.localeName);
+    await Posthog().register('platform', platformName);
+    await Posthog().register('os_version', osVersion);
+    await Posthog().register('locale', localeName);
   }
 
   /// 把设备 ID 设为匿名 distinct ID（不附带任何用户属性）。

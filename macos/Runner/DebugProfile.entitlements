@@ -8,5 +8,11 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<!-- 出站网络请求（Dio / PostHog / 更新检查）；App Sandbox 下缺失会导致全部请求失败。 -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- 保存答卷图片到「照片」所需的沙盒资源访问权限。 -->
+	<key>com.apple.security.personal-information.photos-library</key>
+	<true/>
 </dict>
 </plist>

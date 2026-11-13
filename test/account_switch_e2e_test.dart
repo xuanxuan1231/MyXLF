@@ -40,5 +40,8 @@ void main() {
       );
     },
     timeout: const Timeout(Duration(minutes: 3)),
+    skip: username.isEmpty || password.isEmpty
+        ? '请设置 XLF_E2E_USERNAME / XLF_E2E_PASSWORD 后运行'
+        : false,
   );
 }

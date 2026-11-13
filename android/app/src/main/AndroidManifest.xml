@@ -6,12 +6,18 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
     <!-- 禁用自动备份：安全存储的密文与设备 Keystore 绑定，
-         恢复到新设备后无法解密，只会导致读取失败。 -->
+         恢复到新设备后无法解密，只会导致读取失败。
+         Android 12+ 的换机迁移（allowBackup 无法关闭）由
+         res/xml/data_extraction_rules.xml 单独排除。 -->
+    <!-- requestLegacyExternalStorage：gal 在 API <= 29 上通过 DATA 列写入
+         公共相册，Android 10 需要旧版存储兼容模式。 -->
     <application
         android:label="MyXLF"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:allowBackup="false">
+        android:allowBackup="false"
+        android:requestLegacyExternalStorage="true"
+        android:dataExtractionRules="@xml/data_extraction_rules">
         <activity
             android:name=".MainActivity"
             android:exported="true"

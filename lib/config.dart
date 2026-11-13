@@ -2,7 +2,13 @@
 library;
 
 /// 平台基础地址（不含末尾斜杠）。
-const String kBaseUrl = 'https://test.k12media.cn:8000/tqweb';
+///
+/// Web 版建议通过同源反向代理部署，并在构建时覆盖：
+/// `flutter build web --dart-define=XLF_BASE_URL=https://your-host/tqweb`
+const String kBaseUrl = String.fromEnvironment(
+  'XLF_BASE_URL',
+  defaultValue: 'https://test.k12media.cn:8000/tqweb',
+);
 
 /// 登录表单 AES 加密密钥（与网页端 CryptoJS 一致）。
 const String kAesKey = 'xlfykj@20231026@';

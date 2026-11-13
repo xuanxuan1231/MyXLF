@@ -26,6 +26,16 @@ fvm flutter test test/e2e_test.dart   # 手动运行端到端测试
 
 账号密码保存在系统安全存储中（Android Keystore / iOS Keychain / Linux libsecret），不会写入 `shared_preferences`。Linux 运行需要 `libsecret` 及可用的密钥环服务（GNOME Keyring / KWallet）；密钥环不可用时应用会提示重新登录，而不是把密码降级为明文保存。
 
+## Web 版
+
+```bash
+fvm flutter build web --release
+```
+
+Web 版需要 HTTPS 部署，并且 API 必须同源（推荐反向代理）或由服务端开启 CORS——当前测试平台没有返回 `Access-Control-Allow-Origin`，直接跨域访问会被浏览器拦截。可用 `--dart-define=XLF_BASE_URL=https://your-host/tqweb` 指定构建时的平台地址。
+
+Web 端的「保存到相册」会改为浏览器下载，「分享」优先使用 Web Share API；会话 Cookie 与证书校验交给浏览器处理。部署细节、Nginx 示例和已知限制见 **[docs/web.md](docs/web.md)**。
+
 ## 遥测与隐私
 
 应用集成了 [PostHog](https://posthog.com) 匿名使用统计（装机量、活跃度、版本分布、崩溃与稳定性），debug 构建默认关闭遥测，profile / release 通过事件属性 `app_env` 区分。首次启动会在登录页之前展示「可选访问信息收集」说明页（默认勾选，可取消），之后随时可在「账户 → 隐私与遥测」中退出或重新加入。**不收集**账号、姓名、成绩等任何个人数据。详见 [docs/telemetry.md](docs/telemetry.md)。

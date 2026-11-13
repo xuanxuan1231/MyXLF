@@ -75,8 +75,14 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       fileName: _fileName(),
       text: '${widget.title} · 第 ${_index + 1} 页',
     );
-    if (outcome.target == ShareTarget.file && mounted) {
-      _showMessage('当前平台不支持直接分享，已保存到 ${outcome.path}');
+    if (!mounted) return;
+    switch (outcome.target) {
+      case ShareTarget.download:
+        _showMessage('已下载图片，请在浏览器下载内容中查看');
+      case ShareTarget.file:
+        _showMessage('当前平台不支持直接分享，已保存到 ${outcome.path}');
+      case ShareTarget.shared:
+        break;
     }
   }
 
@@ -88,6 +94,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     _showMessage(switch (outcome.target) {
       SaveTarget.gallery => '已保存到相册',
       SaveTarget.file => '已保存到 ${outcome.path}',
+      SaveTarget.download => '已下载图片',
       SaveTarget.permissionDenied => '没有相册权限，请在系统设置中开启后重试',
     });
   }

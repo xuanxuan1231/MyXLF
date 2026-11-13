@@ -61,6 +61,8 @@ dependencies:
   posthog_flutter: ^5.57.1
   device_info_plus: ^12.4.0
   android_id: ^0.6.0
+  # Web 端图片下载 / Web Share API（条件导入，仅 Web 构建引用）。
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

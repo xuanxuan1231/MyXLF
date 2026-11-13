@@ -1,16 +1,15 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:dio/io.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 
 import '../config.dart';
 import '../models/models.dart';
 import 'aes_crypto.dart';
+import 'dio_platform.dart';
 import 'parsers.dart';
 import 'xlf_exceptions.dart';
 
@@ -94,14 +93,14 @@ class XlfClient {
       ),
     );
 
-    // 忽略自签名证书（仅测试环境）。
-    (_dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
-      final client = HttpClient();
-      client.badCertificateCallback = (_, __, ___) => true;
-      return client;
-    };
+    // 平台差异：移动端 / 桌面端忽略自签名证书；Web 交给浏览器并携带凭据。
+    configureHttpClient(_dio);
 
-    _dio.interceptors.add(CookieManager(_cookieJar));
+    // Web 的 Cookie 由浏览器管理（且禁止脚本写入 Cookie 头），
+    // 不能再用本地 CookieJar 拼接请求头。
+    if (!useBrowserCookieStore) {
+      _dio.interceptors.add(CookieManager(_cookieJar));
+    }
     // 会话过期检测 + 静默重登（须在 CookieManager 之后注册，以便重试时带上新 Cookie）。
     _dio.interceptors.add(_SessionGuardInterceptor(this));
   }
