@@ -385,7 +385,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          app_path="build/macos/Build/Products/Release/xlf.app"
+          app_path="build/macos/Build/Products/Release/MyXLF.app"
           archive="dist/MyXLF-${APP_VERSION}-macos.zip"
           test -d "$app_path"
           ditto -c -k --sequesterRsrc --keepParent "$app_path" "$archive"
