@@ -441,6 +441,111 @@ class Parsers {
         .toList();
   }
 
+  /// 解析「典型答卷」页面：题号导航 + 当前小题的答卷图片。
+  ///
+  /// 平台每次只返回当前选中小题的图片；顶部导航列出全部小题及
+  /// 对应的 `itemId`，用于按题重新请求。
+  static TypicalAnswerSheet parseTypicalAnswerSheet(String html) {
+    final doc = html_parser.parse(html);
+    final items = _parseTypicalItems(doc);
+    final images = parseTypicalAnswerImages(html);
+    if (images.isEmpty) {
+      return TypicalAnswerSheet(items: items);
+    }
+
+    final byNumber = <String, List<TypicalAnswerImage>>{};
+    for (final image in images) {
+      if (image.number.isEmpty) continue;
+      byNumber
+          .putIfAbsent(normalizeQuestionNumber(image.number), () => [])
+          .add(image);
+    }
+
+    if (items.isEmpty) {
+      // 兼容没有题号导航的页面：直接按图片标签中的题号分组。
+      final grouped = <String, List<TypicalAnswerImage>>{};
+      for (final image in images) {
+        grouped
+            .putIfAbsent(normalizeQuestionNumber(image.number), () => [])
+            .add(image);
+      }
+      return TypicalAnswerSheet(
+        items: [
+          for (final entry in grouped.entries)
+            TypicalAnswerItem(
+              itemId: '',
+              number: entry.value.first.number.isEmpty
+                  ? entry.key
+                  : entry.value.first.number,
+              images: entry.value,
+            ),
+        ],
+      );
+    }
+
+    return TypicalAnswerSheet(
+      items: [
+        for (final item in items)
+          item.copyWith(
+            images: byNumber[normalizeQuestionNumber(item.number)] ?? const [],
+          ),
+      ],
+    );
+  }
+
+  /// 解析当前页面中的典型答卷图片及其评价（优秀答卷 / 典型错误等）。
+  static List<TypicalAnswerImage> parseTypicalAnswerImages(String html) {
+    final doc = html_parser.parse(html);
+    final images = <TypicalAnswerImage>[];
+    for (final li in doc.querySelectorAll('#img_ul li')) {
+      final img = li.querySelector('img');
+      if (img == null) continue;
+      final src = (img.attributes['src'] ?? '').trim();
+      if (src.isEmpty) continue;
+
+      var caption = '';
+      for (final div in li.querySelectorAll('div')) {
+        final style = div.attributes['style'] ?? '';
+        if (!style.contains('font-size: 16px')) continue;
+        caption = _clean(div.text);
+        break;
+      }
+      final parsed = _parseTypicalCaption(caption);
+      images.add(
+        TypicalAnswerImage(
+          url: _absUrl(src),
+          number: parsed.$1,
+          label: parsed.$2,
+        ),
+      );
+    }
+    return images;
+  }
+
+  static List<TypicalAnswerItem> _parseTypicalItems(Document doc) {
+    final items = <TypicalAnswerItem>[];
+    final seen = <String>{};
+    for (final a in doc.querySelectorAll('a[onclick]')) {
+      final onclick = a.attributes['onclick'] ?? '';
+      final match = RegExp(r"showItemNoImgsJs\('([^']+)'\)").firstMatch(onclick);
+      if (match == null) continue;
+      final itemId = match.group(1) ?? '';
+      final number = _clean(a.text);
+      if (itemId.isEmpty || number.isEmpty || !seen.add(itemId)) continue;
+      items.add(TypicalAnswerItem(itemId: itemId, number: number));
+    }
+    return items;
+  }
+
+  /// 把「第18.2题  优秀答卷  34分」拆成题号与评价。
+  static (String, String) _parseTypicalCaption(String caption) {
+    var text = _clean(caption.replaceAll('下载图片', ''));
+    if (text.isEmpty) return ('', '');
+    final match = RegExp(r'^第\s*([^\s]+?)\s*题\s*(.*)$').firstMatch(text);
+    if (match == null) return ('', text);
+    return (match.group(1) ?? '', (match.group(2) ?? '').trim());
+  }
+
   /// 解析 subjectReport2(...) 调用中的参数。
   static SubjectLink? _parseSubjectLink(String href) {
     final start = href.indexOf('subjectReport2(');

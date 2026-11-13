@@ -4,6 +4,7 @@ import 'package:m3e_core/m3e_core.dart';
 import '../models/models.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import 'typical_answer_preview.dart';
 
 /// 卷面作答：按结果筛选、保持原始题号顺序的 M3E 列表。
 ///
@@ -11,9 +12,16 @@ import '../theme/responsive.dart';
 /// 题号、题型、作答结果、得分和年级对比；完整的指标放在题目详情中。
 /// 列表不会按题型重排，方便学生按试卷顺序核对、记录小分。
 class QuestionAnswersSection extends StatefulWidget {
-  const QuestionAnswersSection({super.key, required this.questions});
+  const QuestionAnswersSection({
+    super.key,
+    required this.questions,
+    this.answerSheetForm,
+  });
 
   final List<QuestionScore> questions;
+
+  /// 典型答卷所需表单；为空时不展示「典型答卷」入口。
+  final AnswerSheetForm? answerSheetForm;
 
   @override
   State<QuestionAnswersSection> createState() => _QuestionAnswersSectionState();
@@ -249,6 +257,13 @@ class _QuestionAnswersSectionState extends State<QuestionAnswersSection>
               if (_hasKnowledge(question)) ...[
                 const SizedBox(height: 12),
                 _knowledgePanel(question),
+              ],
+              if (widget.answerSheetForm != null) ...[
+                const SizedBox(height: 12),
+                TypicalAnswerPreview(
+                  form: widget.answerSheetForm!,
+                  questionNumber: question.number,
+                ),
               ],
               const SizedBox(height: 8),
             ],

@@ -479,13 +479,108 @@ class AnswerSheetForm {
   final String schoolName;
   final String testId;
 
-  Map<String, String> toForm() => {
+  Map<String, String> toForm({String? itemId}) => {
         'paperId': paperId,
         'classNo': classNo,
         'studentName': studentName,
         'schoolName': schoolName,
         'testId': testId,
+        if (itemId != null && itemId.isNotEmpty) 'itemId': itemId,
       };
+}
+
+/// 典型答卷中的一张图片。
+class TypicalAnswerImage {
+  const TypicalAnswerImage({
+    required this.url,
+    this.number = '',
+    this.label = '',
+  });
+
+  /// 图片地址。
+  final String url;
+
+  /// 题号，例如「10」「18.2」；接口未提供时为空。
+  final String number;
+
+  /// 平台给出的评价，例如「优秀答卷」「典型错误」「满分答卷 6分」。
+  final String label;
+
+  /// 展示用评价；没有评价时回退为「典型答卷」。
+  String get displayLabel => label.trim().isEmpty ? '典型答卷' : label.trim();
+}
+
+/// 典型答卷中某道小题的一组图片。
+class TypicalAnswerItem {
+  const TypicalAnswerItem({
+    required this.itemId,
+    required this.number,
+    this.images = const [],
+  });
+
+  /// 平台的小题 ID，用于按题加载典型答卷。
+  final String itemId;
+
+  /// 题号，例如「10」「18.2」。
+  final String number;
+
+  /// 该题的全部典型答卷图片。
+  final List<TypicalAnswerImage> images;
+
+  bool get hasImages => images.isNotEmpty;
+
+  TypicalAnswerItem copyWith({List<TypicalAnswerImage>? images}) {
+    return TypicalAnswerItem(
+      itemId: itemId,
+      number: number,
+      images: images ?? this.images,
+    );
+  }
+}
+
+/// 典型答卷（按题目分组）。
+class TypicalAnswerSheet {
+  const TypicalAnswerSheet({required this.items});
+
+  /// 小题列表，顺序与平台页面上的题号导航一致。
+  final List<TypicalAnswerItem> items;
+
+  bool get isEmpty => items.isEmpty;
+
+  /// 是否至少有一道题包含典型答卷图片。
+  bool get hasImages => items.any((item) => item.hasImages);
+
+  /// 根据题号查找小题，忽略空白与全角括号差异。
+  TypicalAnswerItem? itemForNumber(String number) {
+    final target = normalizeQuestionNumber(number);
+    for (final item in items) {
+      if (normalizeQuestionNumber(item.number) == target) return item;
+    }
+    return null;
+  }
+
+  /// 替换某道题的图片并返回新的答卷对象。
+  TypicalAnswerSheet withItemImages(
+    String itemId,
+    List<TypicalAnswerImage> images,
+  ) {
+    return TypicalAnswerSheet(
+      items: [
+        for (final item in items)
+          item.itemId == itemId ? item.copyWith(images: images) : item,
+      ],
+    );
+  }
+}
+
+/// 规范化题号，便于把「11（1）」「11(1)」「11.1」等写法对齐。
+String normalizeQuestionNumber(String value) {
+  return value
+      .trim()
+      .replaceAll('（', '(')
+      .replaceAll('）', ')')
+      .replaceAll('．', '.')
+      .replaceAll(RegExp(r'\s+'), '');
 }
 
 /// 一个难度档位的失分统计（例如「较易 8 分」）。

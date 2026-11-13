@@ -11,6 +11,7 @@ import '../widgets/question_answers_section.dart';
 import '../widgets/report_split_layout.dart';
 import '../widgets/score_rate_chart.dart';
 import 'answer_sheet_screen.dart';
+import 'typical_answer_sheet_screen.dart';
 
 /// 学科分析报告（成绩概况 + 答卷 + 卷面作答 + 得失分分析）。
 class SubjectReportScreen extends StatefulWidget {
@@ -116,7 +117,10 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _sectionTitle('卷面作答'),
-          QuestionAnswersSection(questions: report.questions),
+          QuestionAnswersSection(
+            questions: report.questions,
+            answerSheetForm: report.answerSheet,
+          ),
         ],
       ),
       if (_hasGainLoss(report))
@@ -238,11 +242,9 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
     if (form == null) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => AnswerSheetScreen(
-          title: typical ? '典型答卷' : '我的答卷',
-          form: form,
-          typical: typical,
-        ),
+        builder: (_) => typical
+            ? TypicalAnswerSheetScreen(title: '典型答卷', form: form)
+            : AnswerSheetScreen(title: '我的答卷', form: form),
         settings: const RouteSettings(name: 'Answer Sheet'),
       ),
     );
@@ -264,7 +266,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
             const SizedBox(width: 12),
             Expanded(child: Text(i == 0 ? '我的答卷' : '典型答卷')),
             Text(
-              '查看',
+              i == 0 ? '查看' : '按题查看',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),

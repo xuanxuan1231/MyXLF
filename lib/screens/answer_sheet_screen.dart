@@ -17,14 +17,10 @@ class AnswerSheetScreen extends StatefulWidget {
     super.key,
     required this.title,
     required this.form,
-    this.typical = false,
   });
 
   final String title;
   final AnswerSheetForm form;
-
-  /// 是否展示典型答卷（否则展示我的答卷）。
-  final bool typical;
 
   @override
   State<AnswerSheetScreen> createState() => _AnswerSheetScreenState();
@@ -50,8 +46,7 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
       _error = null;
     });
     try {
-      final urls = await XlfClient.instance
-          .fetchAnswerSheetImages(widget.form, typical: widget.typical);
+      final urls = await XlfClient.instance.fetchAnswerSheetImages(widget.form);
       if (!mounted) return;
       setState(() {
         _urls = urls;

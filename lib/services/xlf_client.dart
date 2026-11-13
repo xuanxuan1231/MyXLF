@@ -66,6 +66,10 @@ class XlfClient {
   /// 保存的密码已被平台拒绝后，不要继续拿它自动重登，直接询问用户。
   bool _credentialsRejected = false;
 
+  /// 典型答卷缓存：避免题号导航与题目详情重复请求同一份页面。
+  final Map<String, TypicalAnswerSheet> _typicalSheetCache = {};
+  final Map<String, List<TypicalAnswerImage>> _typicalImageCache = {};
+
   /// 会话过期时弹出「重新登录」对话框；未注入时只能提示登录失效。
   XlfReauthPrompt? reauthPrompt;
 
@@ -123,6 +127,8 @@ class XlfClient {
     _lockedUsername = null;
     _lockedMessage = null;
     _credentialsRejected = false;
+    _typicalSheetCache.clear();
+    _typicalImageCache.clear();
   }
 
   /// 清除 Cookie，但保留当前账号身份，供 [login] 重新认证使用。
@@ -717,17 +723,88 @@ class XlfClient {
   }
 
   /// 获取答卷（答题卡原图）图片地址。
-  /// [typical] 为 true 时获取典型答卷，否则获取我的答卷。
-  Future<List<String>> fetchAnswerSheetImages(
-    AnswerSheetForm form, {
-    bool typical = false,
-  }) async {
-    final action = typical ? 'showItemTypicalImg' : 'findStudentImgs';
+  ///
+  /// 典型答卷请使用 [fetchTypicalAnswerSheet] 或
+  /// [fetchTypicalAnswerImagesForQuestion]，它们会保留按题分组信息。
+  Future<List<String>> fetchAnswerSheetImages(AnswerSheetForm form) async {
     final resp = await _postForm(
-      '$kBaseUrl/report/ShowStudentImgsAction.a?$action',
+      '$kBaseUrl/report/ShowStudentImgsAction.a?findStudentImgs',
       form.toForm(),
     );
     return Parsers.parseImageUrls(resp.data.toString());
+  }
+
+  /// 获取典型答卷的题号导航与默认小题的图片。
+  Future<TypicalAnswerSheet> fetchTypicalAnswerSheet(
+    AnswerSheetForm form, {
+    bool refresh = false,
+  }) async {
+    final baseKey = _typicalCacheKey(form);
+    if (!refresh) {
+      final cached = _typicalSheetCache[baseKey];
+      if (cached != null) return cached;
+    }
+
+    final resp = await _postForm(
+      '$kBaseUrl/report/ShowStudentImgsAction.a?showItemTypicalImg',
+      form.toForm(),
+    );
+    final sheet = Parsers.parseTypicalAnswerSheet(resp.data.toString());
+    if (refresh) {
+      _typicalImageCache.removeWhere((key, _) => key.startsWith('$baseKey|'));
+    }
+    _typicalSheetCache[baseKey] = sheet;
+    for (final item in sheet.items) {
+      if (item.hasImages) {
+        _typicalImageCache['$baseKey|${item.itemId}'] = item.images;
+      }
+    }
+    return sheet;
+  }
+
+  /// 按小题 ID 获取典型答卷图片。
+  Future<List<TypicalAnswerImage>> fetchTypicalAnswerImages(
+    AnswerSheetForm form,
+    String itemId, {
+    bool refresh = false,
+  }) async {
+    final baseKey = _typicalCacheKey(form);
+    final cacheKey = '$baseKey|$itemId';
+    if (!refresh) {
+      final cached = _typicalImageCache[cacheKey];
+      if (cached != null) return cached;
+    }
+
+    final resp = await _postForm(
+      '$kBaseUrl/report/ShowStudentImgsAction.a?showItemTypicalImg',
+      form.toForm(itemId: itemId),
+    );
+    final images = Parsers.parseTypicalAnswerImages(resp.data.toString());
+    _typicalImageCache[cacheKey] = images;
+    final sheet = _typicalSheetCache[baseKey];
+    if (sheet != null) {
+      _typicalSheetCache[baseKey] = sheet.withItemImages(itemId, images);
+    }
+    return images;
+  }
+
+  /// 按题号获取典型答卷图片；会自动补齐题号到小题 ID 的映射。
+  Future<List<TypicalAnswerImage>> fetchTypicalAnswerImagesForQuestion(
+    AnswerSheetForm form,
+    String number, {
+    bool refresh = false,
+  }) async {
+    final sheet = await fetchTypicalAnswerSheet(form, refresh: refresh);
+    final item = sheet.itemForNumber(number);
+    if (item == null) return const [];
+    if (item.hasImages) return item.images;
+    if (item.itemId.isEmpty) return const [];
+    return fetchTypicalAnswerImages(form, item.itemId, refresh: refresh);
+  }
+
+  String _typicalCacheKey(AnswerSheetForm form) {
+    return '${form.testId}|${form.paperId}|${form.classNo}|'
+        '${form.studentName}|${form.schoolName}';
   }
 
   /// 抓取图片二进制数据（用于自签名证书环境下的图片展示）。
