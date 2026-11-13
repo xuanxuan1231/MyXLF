@@ -37,9 +37,9 @@ fvm flutter test test/e2e_test.dart   # 手动运行端到端测试
 - `flutter analyze`
 - `flutter test --exclude-tags e2e`
 
-## 发布 Release
+## 构建与发布 Release
 
-`.github/workflows/release.yml` 负责构建并发布 Android、iOS、Windows、macOS 和 Linux 安装包。
+`.github/workflows/release.yml` 将构建和发版分为两个阶段：先按选择构建平台产物，再根据开关决定是否创建 GitHub Release。
 
 ### 打标签发布
 
@@ -52,7 +52,7 @@ fvm flutter test test/e2e_test.dart   # 手动运行端到端测试
    git push origin v1.2.3
    ```
 
-工作流会：
+标签推送会自动构建全部平台并创建 GitHub Release。工作流会：
 
 1. 运行静态分析和单元测试（Android 任务）。
 2. 构建 Release APK、AAB、IPA，以及 Windows ZIP、macOS APP ZIP 和 Linux TAR.GZ。
@@ -66,7 +66,12 @@ fvm flutter test test/e2e_test.dart   # 手动运行端到端测试
    - `MyXLF-<version>-linux-x64.tar.gz`：Linux x64 应用压缩包
    - `SHA256SUMS-<version>-{android,ios,windows,macos,linux}.txt`：校验文件
 
-也可以进入 **Actions → Release → Run workflow** 手动触发；版本号留空时使用 `pubspec.yaml` 中的版本。桌面产物为未签名压缩包，下载后可直接解压运行；macOS 如需绕过 Gatekeeper 或发布到 App Store，仍需自行签名和公证。
+也可以进入 **Actions → Release → Run workflow** 手动触发；版本号留空时使用 `pubspec.yaml` 中的版本。手动触发时可设置：
+
+- `publish_release`：关闭时只构建并上传 Actions Artifacts，不创建 GitHub Release；开启时在构建完成后创建 Release。
+- `build_android`、`build_ios`、`build_windows`、`build_macos`、`build_linux`：分别控制是否构建对应平台。
+
+手动发版时至少选择一个平台。桌面产物为未签名压缩包，下载后可直接解压运行；macOS 如需绕过 Gatekeeper 或发布到 App Store，仍需自行签名和公证。
 
 ### Release Notes
 
