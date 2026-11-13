@@ -1,8 +1,23 @@
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 /// 品牌主色（与网页端一致的蓝色）。
 const Color kSeedColor = Color(0xFF2F6FED);
+
+/// 桌面端滚动行为：允许用鼠标拖动滚动内容。
+///
+/// Flutter 默认只在触摸屏上启用拖动，桌面端鼠标用户通常用滚轮或滚动条；
+/// 鼠标拖动让列表的下拉刷新、横向图表等交互在桌面上同样可用。
+class AppScrollBehavior extends MaterialScrollBehavior {
+  const AppScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    ...super.dragDevices,
+    PointerDeviceKind.mouse,
+  };
+}
 
 /// 应用主题：亮色 / 暗色都由同一 M3E 种子色推导，颜色模式跟随系统。
 class AppTheme {

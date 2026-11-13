@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../services/telemetry.dart';
+import '../theme/responsive.dart';
 import '../widgets/telemetry_notice.dart';
 import 'bootstrap_screen.dart';
 
@@ -47,7 +48,11 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
       appBar: AppBar(title: const Text('可选访问信息收集')),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: adaptivePadding(
+            context,
+            maxWidth: 760,
+            padding: const EdgeInsets.all(20),
+          ),
           children: [
             Text(
               '为了持续改进 MyXLF 并及时发现崩溃与故障，我们希望收集匿名的使用信息。'

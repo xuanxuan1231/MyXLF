@@ -5,9 +5,11 @@ import '../models/models.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
+import '../theme/responsive.dart';
+import '../widgets/chart_image.dart';
 import '../widgets/question_answers_section.dart';
+import '../widgets/report_split_layout.dart';
 import '../widgets/score_rate_chart.dart';
-import '../widgets/xlf_image.dart';
 import 'answer_sheet_screen.dart';
 
 /// 学科分析报告（成绩概况 + 答卷 + 卷面作答 + 得失分分析）。
@@ -61,7 +63,18 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.link.subjectName} · 学科分析')),
+      appBar: AppBar(
+        title: Text('${widget.link.subjectName} · 学科分析'),
+        actions: [
+          // 桌面端没有下拉刷新手势，提供显式刷新入口。
+          if (context.showRefreshAction)
+            IconButton(
+              tooltip: '刷新学科分析',
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: _buildBody(),
     );
   }
@@ -70,47 +83,67 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
     if (_loading) return const Center(child: M3ECircularProgressIndicator());
     if (_error != null) {
       return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              M3EFilledButton(onPressed: _load, child: const Text('重试')),
-            ],
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(_error!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                M3EFilledButton(onPressed: _load, child: const Text('重试')),
+              ],
+            ),
           ),
         ),
       );
     }
     final report = _report!;
-    return M3EPullToRefreshIndicator(
-      onRefresh: _load,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
-        children: [
-          _buildHero(report),
-          if (report.answerSheet != null) ...[
-            const SizedBox(height: 20),
+    final leftSections = <Widget>[
+      _buildHero(report),
+      if (report.answerSheet != null)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
             _sectionTitle('答卷'),
             _buildAnswerSheetSection(report),
           ],
-          const SizedBox(height: 20),
+        ),
+    ];
+    final rightSections = <Widget>[
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           _sectionTitle('卷面作答'),
           QuestionAnswersSection(questions: report.questions),
-          if (_hasGainLoss(report)) ...[
-            const SizedBox(height: 20),
+        ],
+      ),
+      if (_hasGainLoss(report))
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
             _sectionTitle('得失分分析'),
             _card(_buildGainLoss(report)),
           ],
-          if (report.chartImages.isNotEmpty) ...[
-            const SizedBox(height: 20),
+        ),
+      if (report.chartImages.isNotEmpty)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
             _sectionTitle('平台图表'),
             ..._buildChartImages(report),
           ],
-        ],
-      ),
+        ),
+    ];
+
+    // 宽屏：左栏固定显示成绩概况与答卷入口，右栏独立滚动逐题作答、
+    // 得失分分析与平台图表；左栏过高时可以单独滚动。
+    return ReportSplitLayout(
+      leftSections: leftSections,
+      rightSections: rightSections,
+      leftWidth: 380,
+      onRefresh: _load,
     );
   }
 
@@ -370,20 +403,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
   // ---- 图表 ----
 
   List<Widget> _buildChartImages(SubjectReport report) {
-    return [
-      for (final url in report.chartImages)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: XlfImage(
-              url: url,
-              width: double.infinity,
-              fit: BoxFit.fitWidth,
-            ),
-          ),
-        ),
-    ];
+    return [ChartImageGrid(urls: report.chartImages)];
   }
 
   String _fmt(double v) {

@@ -4,6 +4,7 @@ import 'package:m3e_core/m3e_core.dart';
 import '../models/models.dart';
 import '../services/account_store.dart';
 import '../services/xlf_client.dart';
+import '../theme/responsive.dart';
 import '../widgets/session_recovery.dart';
 import 'login_screen.dart';
 
@@ -188,6 +189,10 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
     final scheme = Theme.of(context).colorScheme;
     showM3EModalBottomSheet<void>(
       context: context,
+      // 桌面端限制面板宽度，避免操作项被拉满整个窗口。
+      constraints: context.useSideNavigation
+          ? const BoxConstraints(maxWidth: 560)
+          : null,
       builder: (ctx) => M3EBottomSheet(
         title: Text(account.username),
         showDragHandle: true,
@@ -220,7 +225,17 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('账户管理')),
+      appBar: AppBar(
+        title: const Text('账户管理'),
+        actions: [
+          if (context.showRefreshAction)
+            IconButton(
+              tooltip: '刷新账号列表',
+              onPressed: _loading ? null : _refresh,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: _loading
           ? const Center(child: M3ECircularProgressIndicator())
           : M3ESegmentedList.builder(
@@ -228,7 +243,11 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
               padding: EdgeInsets.zero,
               gap: 2,
               outerRadius: 24,
-              listPadding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+              listPadding: adaptivePadding(
+                context,
+                maxWidth: 760,
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+              ),
               onTap: (i) => _switchTo(_accounts[i]),
               itemBuilder: (_, i) => _buildItem(_accounts[i]),
             ),

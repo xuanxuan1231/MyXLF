@@ -4,6 +4,7 @@ import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../services/xlf_client.dart';
+import '../theme/responsive.dart';
 import '../widgets/session_recovery.dart';
 import 'main_shell.dart';
 
@@ -104,80 +105,90 @@ class _LoginScreenState extends State<LoginScreen> {
       appBar: AppBar(title: const Text('登录')),
       // AutofillGroup 是 Android / iOS 自动填充的前提，缺少它时系统不会把这两个输入框
       // 视为同一组账号密码，也不会触发填充与保存提示。
-      body: AutofillGroup(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 8),
-              Center(
-                child: Image.asset(
-                  Theme.of(context).brightness == Brightness.dark
-                      ? 'assets/images/logo_dark.png'
-                      : 'assets/images/logo_light.png',
-                  width: 96,
-                  height: 96,
-                  semanticLabel: 'MyXLF',
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'MyXLF',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '学生成绩分析报告',
-                textAlign: TextAlign.center,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 32),
-              TextField(
-                controller: _usernameController,
-                autofillHints: const [AutofillHints.username],
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: '用户名',
-                  hintText: '学生姓名或手机号',
-                  prefixIcon: Icon(Icons.person_outline),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _passwordController,
-                obscureText: _obscure,
-                autofillHints: const [AutofillHints.password],
-                textInputAction: TextInputAction.done,
-                onSubmitted: (_) => _submit(),
-                decoration: InputDecoration(
-                  labelText: '密码',
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscure ? Icons.visibility_off : Icons.visibility,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            // 桌面端表单保持在可读宽度内，避免输入框被拉满整个窗口。
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: AutofillGroup(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 8),
+                    Center(
+                      child: Image.asset(
+                        Theme.of(context).brightness == Brightness.dark
+                            ? 'assets/images/logo_dark.png'
+                            : 'assets/images/logo_light.png',
+                        width: 96,
+                        height: 96,
+                        semanticLabel: 'MyXLF',
+                      ),
                     ),
-                    onPressed: () => setState(() => _obscure = !_obscure),
-                  ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'MyXLF',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '学生成绩分析报告',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    TextField(
+                      controller: _usernameController,
+                      autofillHints: const [AutofillHints.username],
+                      textInputAction: TextInputAction.next,
+                      // 桌面端进入登录页后直接聚焦用户名，省去一次点击。
+                      autofocus: context.useSideNavigation,
+                      decoration: const InputDecoration(
+                        labelText: '用户名',
+                        hintText: '学生姓名或手机号',
+                        prefixIcon: Icon(Icons.person_outline),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _passwordController,
+                      obscureText: _obscure,
+                      autofillHints: const [AutofillHints.password],
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _submit(),
+                      decoration: InputDecoration(
+                        labelText: '密码',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscure ? Icons.visibility_off : Icons.visibility,
+                          ),
+                          onPressed: () => setState(() => _obscure = !_obscure),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    M3EFilledButton(
+                      onPressed: _submitting ? null : _submit,
+                      size: M3EButtonSize.md,
+                      child: _submitting
+                          ? const M3ECircularProgressIndicator(
+                              size: 20,
+                              strokeWidth: 2,
+                            )
+                          : const Text('登录'),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 24),
-              M3EFilledButton(
-                onPressed: _submitting ? null : _submit,
-                size: M3EButtonSize.md,
-                child: _submitting
-                    ? const M3ECircularProgressIndicator(
-                        size: 20,
-                        strokeWidth: 2,
-                      )
-                    : const Text('登录'),
-              ),
-            ],
+            ),
           ),
         ),
       ),

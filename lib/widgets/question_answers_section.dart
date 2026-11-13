@@ -3,6 +3,7 @@ import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../theme/app_theme.dart';
+import '../theme/responsive.dart';
 
 /// 卷面作答：按结果筛选、保持原始题号顺序的 M3E 列表。
 ///
@@ -187,6 +188,10 @@ class _QuestionAnswersSectionState extends State<QuestionAnswersSection> {
 
     showM3EModalBottomSheet<void>(
       context: context,
+      // 桌面端限制详情面板宽度，避免内容被拉满整个窗口。
+      constraints: context.useSideNavigation
+          ? const BoxConstraints(maxWidth: 640)
+          : null,
       builder: (ctx) => M3EBottomSheet(
         showDragHandle: true,
         title: Row(

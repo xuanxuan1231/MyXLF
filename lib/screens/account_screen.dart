@@ -4,6 +4,7 @@ import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../services/xlf_client.dart';
+import '../theme/responsive.dart';
 import 'about_screen.dart';
 import 'account_management_screen.dart';
 import 'login_history_screen.dart';
@@ -89,105 +90,147 @@ class AccountScreen extends StatelessWidget {
         ? loginResult.userId
         : (account.userId ?? '');
 
+    // 个人信息：头像、姓名、学校班级与账号信息合并为一个卡片。
+    final profileCard = M3ESegmentedList(
+      itemCount: 1,
+      outerRadius: 24,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      itemBuilder: (_, __) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildHeader(context, scheme, schoolName, className),
+          const SizedBox(height: 14),
+          Divider(height: 1, color: scheme.outlineVariant),
+          const SizedBox(height: 6),
+          _infoRow(context, '用户 ID', userId),
+          if (account.lastLoginAt != null)
+            _infoRow(
+              context,
+              '上次登录',
+              DateFormat('yyyy/MM/dd HH:mm').format(
+                DateTime.fromMillisecondsSinceEpoch(account.lastLoginAt!),
+              ),
+            ),
+        ],
+      ),
+    );
+
+    final accountSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionLabel('账号'),
+        M3ESegmentedList(
+          itemCount: 2,
+          outerRadius: 24,
+          padding: EdgeInsets.zero,
+          onTap: (i) {
+            if (i == 0) {
+              _openManagement(context);
+            } else {
+              _openHistory(context);
+            }
+          },
+          itemBuilder: (_, i) => i == 0
+              ? _settingsTile(
+                  scheme,
+                  icon: Icons.manage_accounts_outlined,
+                  title: '账户管理',
+                  subtitle: '管理已保存的账号与默认账号',
+                )
+              : _settingsTile(
+                  scheme,
+                  icon: Icons.history,
+                  title: '登录历史',
+                  subtitle: '查看本机账号的登录记录',
+                ),
+        ),
+      ],
+    );
+
+    final appSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionLabel('应用'),
+        M3ESegmentedList(
+          itemCount: 2,
+          outerRadius: 24,
+          padding: EdgeInsets.zero,
+          onTap: (i) {
+            if (i == 0) {
+              _openAbout(context);
+            } else {
+              _openPrivacy(context);
+            }
+          },
+          itemBuilder: (_, i) => i == 0
+              ? _settingsTile(
+                  scheme,
+                  icon: Icons.info_outline,
+                  title: '关于',
+                  subtitle: '版本信息、项目主页与更新检查',
+                )
+              : _settingsTile(
+                  scheme,
+                  icon: Icons.privacy_tip_outlined,
+                  title: '隐私与遥测',
+                  subtitle: '匿名使用数据与隐私选项',
+                ),
+        ),
+      ],
+    );
+
+    // 退出登录：破坏性操作单独成组，避免误触。
+    final logoutSection = M3ESegmentedList(
+      itemCount: 1,
+      outerRadius: 24,
+      padding: EdgeInsets.zero,
+      onTap: (_) => _logout(context),
+      itemBuilder: (_, __) => _settingsTile(
+        scheme,
+        icon: Icons.logout,
+        title: '退出登录',
+        subtitle: '退出当前账号并返回登录页',
+        destructive: true,
+        showChevron: false,
+      ),
+    );
+
+    // 宽屏：左侧个人信息固定，右侧设置分组纵向排列。
+    final twoPane = context.useTwoPaneLayout;
+    final settings = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        accountSection,
+        const SizedBox(height: 24),
+        appSection,
+        const SizedBox(height: 24),
+        logoutSection,
+      ],
+    );
+
     return Scaffold(
       appBar: AppBar(title: const Text('账户')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        padding: adaptivePadding(
+          context,
+          maxWidth: twoPane ? 1040 : 760,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        ),
         children: [
-          // 个人信息：头像、姓名、学校班级与账号信息合并为一个卡片。
-          M3ESegmentedList(
-            itemCount: 1,
-            outerRadius: 24,
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-            itemBuilder: (_, __) => Column(
+          if (twoPane)
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildHeader(context, scheme, schoolName, className),
-                const SizedBox(height: 14),
-                Divider(height: 1, color: scheme.outlineVariant),
-                const SizedBox(height: 6),
-                _infoRow(context, '用户 ID', userId),
-                if (account.lastLoginAt != null)
-                  _infoRow(
-                    context,
-                    '上次登录',
-                    DateFormat('yyyy/MM/dd HH:mm').format(
-                      DateTime.fromMillisecondsSinceEpoch(account.lastLoginAt!),
-                    ),
-                  ),
+                Expanded(flex: 5, child: profileCard),
+                const SizedBox(width: 24),
+                Expanded(flex: 6, child: settings),
               ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          const _SectionLabel('账号'),
-          M3ESegmentedList(
-            itemCount: 2,
-            outerRadius: 24,
-            padding: EdgeInsets.zero,
-            onTap: (i) {
-              if (i == 0) {
-                _openManagement(context);
-              } else {
-                _openHistory(context);
-              }
-            },
-            itemBuilder: (_, i) => i == 0
-                ? _settingsTile(
-                    scheme,
-                    icon: Icons.manage_accounts_outlined,
-                    title: '账户管理',
-                    subtitle: '管理已保存的账号与默认账号',
-                  )
-                : _settingsTile(
-                    scheme,
-                    icon: Icons.history,
-                    title: '登录历史',
-                    subtitle: '查看本机账号的登录记录',
-                  ),
-          ),
-          const SizedBox(height: 24),
-          const _SectionLabel('应用'),
-          M3ESegmentedList(
-            itemCount: 2,
-            outerRadius: 24,
-            padding: EdgeInsets.zero,
-            onTap: (i) {
-              if (i == 0) {
-                _openAbout(context);
-              } else {
-                _openPrivacy(context);
-              }
-            },
-            itemBuilder: (_, i) => i == 0
-                ? _settingsTile(
-                    scheme,
-                    icon: Icons.info_outline,
-                    title: '关于',
-                    subtitle: '版本信息、项目主页与更新检查',
-                  )
-                : _settingsTile(
-                    scheme,
-                    icon: Icons.privacy_tip_outlined,
-                    title: '隐私与遥测',
-                    subtitle: '匿名使用数据与隐私选项',
-                  ),
-          ),
-          const SizedBox(height: 24),
-          // 退出登录：破坏性操作单独成组，避免误触。
-          M3ESegmentedList(
-            itemCount: 1,
-            outerRadius: 24,
-            padding: EdgeInsets.zero,
-            onTap: (_) => _logout(context),
-            itemBuilder: (_, __) => _settingsTile(
-              scheme,
-              icon: Icons.logout,
-              title: '退出登录',
-              subtitle: '退出当前账号并返回登录页',
-              destructive: true,
-              showChevron: false,
-            ),
-          ),
+            )
+          else ...[
+            profileCard,
+            const SizedBox(height: 24),
+            settings,
+          ],
         ],
       ),
     );

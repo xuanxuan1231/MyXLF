@@ -7,6 +7,7 @@ import '../models/models.dart';
 import '../services/image_actions.dart';
 import '../services/image_store.dart';
 import '../services/xlf_client.dart';
+import '../theme/responsive.dart';
 import '../widgets/xlf_image.dart';
 import 'image_viewer_screen.dart';
 
@@ -136,7 +137,17 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          if (context.showRefreshAction)
+            IconButton(
+              tooltip: '刷新答卷图片',
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: _buildBody(),
     );
   }
@@ -145,15 +156,18 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
     if (_loading) return const Center(child: M3ECircularProgressIndicator());
     if (_error != null) {
       return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              M3EFilledButton(onPressed: _load, child: const Text('重试')),
-            ],
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(_error!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                M3EFilledButton(onPressed: _load, child: const Text('重试')),
+              ],
+            ),
           ),
         ),
       );
@@ -165,7 +179,11 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
       onRefresh: _load,
       child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(12),
+        padding: adaptivePadding(
+          context,
+          maxWidth: 900,
+          padding: const EdgeInsets.all(12),
+        ),
         itemCount: _urls.length,
         itemBuilder: (_, i) => _buildImage(_urls[i], i),
       ),
