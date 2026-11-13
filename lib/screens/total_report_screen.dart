@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_top_bar.dart';
 import '../widgets/chart_image.dart';
 import '../widgets/report_split_layout.dart';
 import 'subject_report_screen.dart';
@@ -60,8 +61,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
   void _openSubject(SubjectLink link) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) =>
-            SubjectReportScreen(link: link, examName: widget.examName),
+        builder: (_) => SubjectReportScreen(link: link),
         settings: const RouteSettings(name: 'Subject Report'),
       ),
     );
@@ -70,19 +70,24 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('成绩分析'),
-        actions: [
-          // 桌面端没有下拉刷新手势，提供显式刷新入口。
-          if (context.showRefreshAction)
-            IconButton(
-              tooltip: '刷新成绩分析',
-              onPressed: _loading ? null : _load,
-              icon: const Icon(Icons.refresh),
-            ),
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          AppTopBar(
+            title: widget.examName.isEmpty ? '成绩分析' : widget.examName,
+            subtitle: widget.examName.isEmpty ? null : '成绩分析',
+            actions: [
+              // 桌面端没有下拉刷新手势，提供显式刷新入口。
+              if (context.showRefreshAction)
+                IconButton(
+                  tooltip: '刷新成绩分析',
+                  onPressed: _loading ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                ),
+            ],
+          ),
         ],
+        body: _buildBody(),
       ),
-      body: _buildBody(),
     );
   }
 
@@ -243,8 +248,6 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(report.examName, style: textTheme.titleMedium),
-          const SizedBox(height: 16),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [

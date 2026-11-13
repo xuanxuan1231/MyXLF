@@ -172,6 +172,8 @@ class _MainShellState extends State<MainShell> {
     }
 
     return Scaffold(
+      // 底栏悬浮在内容之上，列表可以滚动到导航栏后方，而不是被压缩出空白。
+      extendBody: true,
       body: body,
       bottomNavigationBar: _FloatingNavigationBar(
         index: _index,

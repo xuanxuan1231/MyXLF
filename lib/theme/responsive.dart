@@ -44,6 +44,14 @@ extension AppResponsiveContext on BuildContext {
 
   /// 是否展示桌面端专属的刷新按钮。
   bool get showRefreshAction => useSideNavigation || isDesktopPlatform;
+
+  /// 移动端悬浮底栏覆盖在内容上方，列表需要预留的底部滚动留白。
+  ///
+  /// `extendBody` 会把悬浮底栏的高度写进 body 的 MediaQuery 底部 padding，
+  /// 这里直接用它再加上一点呼吸空间即可；重复叠加固定高度会让列表底部
+  /// 出现大片空白。使用侧边导航时底栏不存在，返回 0。
+  double get floatingNavigationClearance =>
+      useSideNavigation ? 0 : MediaQuery.paddingOf(this).bottom + 12;
 }
 
 /// 为滚动页面计算居中的内容边距。
