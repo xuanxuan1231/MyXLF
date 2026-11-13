@@ -39,7 +39,7 @@ fvm flutter test test/e2e_test.dart   # 手动运行端到端测试
 
 ## 发布 Release
 
-[`.github/workflows/release.yml`](.github/workflows/release.yml) 负责构建并发布 Android / iOS 安装包。
+`.github/workflows/release.yml` 负责构建并发布 Android、iOS、Windows、macOS 和 Linux 安装包。
 
 ### 打标签发布
 
@@ -55,15 +55,18 @@ fvm flutter test test/e2e_test.dart   # 手动运行端到端测试
 工作流会：
 
 1. 运行静态分析和单元测试（Android 任务）。
-2. 构建 Release APK、AAB 和 IPA。
+2. 构建 Release APK、AAB、IPA，以及 Windows ZIP、macOS APP ZIP 和 Linux TAR.GZ。
 3. 创建 GitHub Release（版本名取自标签去掉开头的 `v`），Release Notes 由 [git-cliff](https://git-cliff.org/) 根据提交历史生成，并附加以下文件：
    - `MyXLF-<version>.apk`：可直接安装的通用 APK
    - `MyXLF-<version>.aab`：用于 Google Play 上架
    - `MyXLF-<version>.ipa`：已签名的 iOS 安装包（配置 iOS 签名时）
    - `MyXLF-<version>-unsigned.ipa`：未签名 IPA（未配置 iOS 签名时），用户需自行重签侧载
-   - `SHA256SUMS-<version>-android.txt` / `SHA256SUMS-<version>-ios.txt`：校验文件
+   - `MyXLF-<version>-windows-x64.zip`：Windows x64 应用压缩包
+   - `MyXLF-<version>-macos.zip`：macOS 应用压缩包
+   - `MyXLF-<version>-linux-x64.tar.gz`：Linux x64 应用压缩包
+   - `SHA256SUMS-<version>-{android,ios,windows,macos,linux}.txt`：校验文件
 
-也可以进入 **Actions → Release → Run workflow** 手动触发；版本号留空时使用 `pubspec.yaml` 中的版本。
+也可以进入 **Actions → Release → Run workflow** 手动触发；版本号留空时使用 `pubspec.yaml` 中的版本。桌面产物为未签名压缩包，下载后可直接解压运行；macOS 如需绕过 Gatekeeper 或发布到 App Store，仍需自行签名和公证。
 
 ### Release Notes
 
