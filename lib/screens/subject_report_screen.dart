@@ -6,6 +6,7 @@ import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_top_bar.dart';
 import '../widgets/chart_image.dart';
 import '../widgets/question_answers_section.dart';
 import '../widgets/report_split_layout.dart';
@@ -14,14 +15,9 @@ import 'answer_sheet_screen.dart';
 
 /// 学科分析报告（成绩概况 + 答卷 + 卷面作答 + 得失分分析）。
 class SubjectReportScreen extends StatefulWidget {
-  const SubjectReportScreen({
-    super.key,
-    required this.link,
-    required this.examName,
-  });
+  const SubjectReportScreen({super.key, required this.link});
 
   final SubjectLink link;
-  final String examName;
 
   @override
   State<SubjectReportScreen> createState() => _SubjectReportScreenState();
@@ -62,20 +58,28 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final subjectName = widget.link.subjectName;
+    final hasSubject = subjectName.isNotEmpty;
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.link.subjectName} · 学科分析'),
-        actions: [
-          // 桌面端没有下拉刷新手势，提供显式刷新入口。
-          if (context.isDesktopPlatform)
-            IconButton(
-              tooltip: '刷新学科分析',
-              onPressed: _loading ? null : _load,
-              icon: const Icon(Icons.refresh),
-            ),
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          AppTopBar(
+            title: hasSubject ? subjectName : '学科分析',
+            subtitle: hasSubject ? '学科分析' : null,
+            actions: [
+              // 桌面端没有下拉刷新手势，提供显式刷新入口。
+              if (context.isDesktopPlatform)
+                IconButton(
+                  tooltip: '刷新学科分析',
+                  onPressed: _loading ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                ),
+            ],
+          ),
         ],
+        body: _buildBody(),
       ),
-      body: _buildBody(),
     );
   }
 

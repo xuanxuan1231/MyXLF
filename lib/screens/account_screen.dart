@@ -5,6 +5,7 @@ import 'package:m3e_core/m3e_core.dart';
 import '../models/models.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_top_bar.dart';
 import 'about_screen.dart';
 import 'account_management_screen.dart';
 import 'login_history_screen.dart';
@@ -206,45 +207,53 @@ class AccountScreen extends StatelessWidget {
       ],
     );
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('账户')),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          // 宽屏：左侧个人信息固定，右侧设置分组纵向排列。
-          final twoPane = constraints.maxWidth >= AppBreakpoints.twoPane;
-          final content = twoPane
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(flex: 5, child: profileCard),
-                    const SizedBox(width: 24),
-                    Expanded(flex: 6, child: settings),
-                  ],
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [profileCard, const SizedBox(height: 24), settings],
-                );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 宽屏：左侧个人信息固定，右侧设置分组纵向排列。
+        final twoPane = constraints.maxWidth >= AppBreakpoints.twoPane;
+        final content = twoPane
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 5, child: profileCard),
+                  const SizedBox(width: 24),
+                  Expanded(flex: 6, child: settings),
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [profileCard, const SizedBox(height: 24), settings],
+              );
 
-          return AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            layoutBuilder: expandedSwitcherLayout,
-            child: KeyedSubtree(
-              key: ValueKey(twoPane),
-              child: ListView(
+        return Scaffold(
+          body: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              const AppTopBar(title: '账户'),
+              SliverPadding(
                 padding: centeredPadding(
                   constraints.maxWidth,
                   maxWidth: twoPane ? 1040 : 760,
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    12,
+                    16,
+                    32 + context.floatingNavigationClearance,
+                  ),
                 ),
-                children: [content],
+                sliver: SliverToBoxAdapter(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    child: KeyedSubtree(key: ValueKey(twoPane), child: content),
+                  ),
+                ),
               ),
-            ),
-          );
-        },
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 

@@ -159,6 +159,8 @@ class _AdaptiveShell extends StatelessWidget {
         final railWidth = extended ? 216.0 : 72.0;
 
         return Scaffold(
+          // 底栏悬浮在内容之上，列表可以滚动到导航栏后方，而不是被压缩出空白。
+          extendBody: true,
           body: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
