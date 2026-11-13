@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_top_bar.dart';
 import 'total_report_screen.dart';
 
 /// 首页：考试列表 + 学年/学期筛选。
@@ -135,23 +136,28 @@ class _HomeScreenState extends State<HomeScreen> {
         ? widget.loginResult.schoolName
         : (widget.account.schoolName ?? '');
     return Scaffold(
-      appBar: AppBar(
-        title: Text(schoolName.isEmpty ? '成绩查询' : schoolName),
-        actions: [
-          // 桌面端没有下拉刷新手势，提供显式刷新入口。
-          if (context.showRefreshAction)
-            IconButton(
-              tooltip: '刷新考试列表',
-              onPressed: _loading ? null : _load,
-              icon: const Icon(Icons.refresh),
-            ),
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          AppTopBar(
+            title: '星立方成绩查询',
+            subtitle: schoolName.isEmpty ? null : schoolName,
+            actions: [
+              // 桌面端没有下拉刷新手势，提供显式刷新入口。
+              if (context.showRefreshAction)
+                IconButton(
+                  tooltip: '刷新考试列表',
+                  onPressed: _loading ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                ),
+            ],
+          ),
         ],
-      ),
-      body: Column(
-        children: [
-          _buildFilterBar(),
-          Expanded(child: _buildBody()),
-        ],
+        body: Column(
+          children: [
+            _buildFilterBar(),
+            Expanded(child: _buildBody()),
+          ],
+        ),
       ),
     );
   }
@@ -295,7 +301,12 @@ class _HomeScreenState extends State<HomeScreen> {
         listPadding: adaptivePadding(
           context,
           maxWidth: 900,
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            8,
+            16,
+            24 + context.floatingNavigationClearance,
+          ),
         ),
         physics: const AlwaysScrollableScrollPhysics(),
         onTap: (i) => _openExam(_exams[i]),
