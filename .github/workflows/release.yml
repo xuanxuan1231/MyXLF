@@ -1,4 +1,4 @@
-name: Release
+name: Build / Release
 
 on:
   push:
@@ -8,8 +8,39 @@ on:
     inputs:
       version:
         description: '版本号（如 1.2.3），留空则读取 pubspec.yaml'
-        required: true
+        required: false
         type: string
+        default: ''
+      publish_release:
+        description: '构建完成后创建 GitHub Release'
+        required: true
+        type: boolean
+        default: false
+      build_android:
+        description: '构建 Android'
+        required: true
+        type: boolean
+        default: true
+      build_ios:
+        description: '构建 iOS'
+        required: true
+        type: boolean
+        default: true
+      build_windows:
+        description: '构建 Windows'
+        required: true
+        type: boolean
+        default: true
+      build_macos:
+        description: '构建 macOS'
+        required: true
+        type: boolean
+        default: true
+      build_linux:
+        description: '构建 Linux'
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -54,6 +85,10 @@ jobs:
           REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${{ inputs.publish_release }}" = "true" ] && [ "${{ inputs.build_android }}" != "true" ] && [ "${{ inputs.build_ios }}" != "true" ] && [ "${{ inputs.build_windows }}" != "true" ] && [ "${{ inputs.build_macos }}" != "true" ] && [ "${{ inputs.build_linux }}" != "true" ]; then
+            echo "::error::选择发版时至少需要启用一个平台构建"
+            exit 1
+          fi
           if [ -n "${REQUESTED_VERSION:-}" ]; then
             version="$REQUESTED_VERSION"
           elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
@@ -72,6 +107,7 @@ jobs:
 
   build-android:
     name: 构建 Android 安装包
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_android }}
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -159,6 +195,7 @@ jobs:
 
   build-ios:
     name: 构建 iOS 安装包
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_ios }}
     needs: prepare
     runs-on: macos-latest
     timeout-minutes: 60
@@ -320,6 +357,7 @@ jobs:
 
   build-windows:
     name: 构建 Windows 安装包
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_windows }}
     needs: prepare
     runs-on: windows-latest
     timeout-minutes: 60
@@ -360,6 +398,7 @@ jobs:
 
   build-macos:
     name: 构建 macOS 安装包
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_macos }}
     needs: prepare
     runs-on: macos-latest
     timeout-minutes: 60
@@ -400,6 +439,7 @@ jobs:
 
   build-linux:
     name: 构建 Linux 安装包
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_linux }}
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -442,6 +482,7 @@ jobs:
 
   release:
     name: 发布 GitHub Release
+    if: ${{ always() && needs.prepare.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.publish_release) }}
     needs: [prepare, build-android, build-ios, build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -454,30 +495,35 @@ jobs:
           fetch-depth: 0
 
       - name: 下载 Android 产物
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_android }}
         uses: actions/download-artifact@v8
         with:
           name: android-release
           path: dist
 
       - name: 下载 iOS 产物
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_ios }}
         uses: actions/download-artifact@v8
         with:
           name: ios-release
           path: dist
 
       - name: 下载 Windows 产物
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_windows }}
         uses: actions/download-artifact@v8
         with:
           name: windows-release
           path: dist
 
       - name: 下载 macOS 产物
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_macos }}
         uses: actions/download-artifact@v8
         with:
           name: macos-release
           path: dist
 
       - name: 下载 Linux 产物
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_linux }}
         uses: actions/download-artifact@v8
         with:
           name: linux-release
