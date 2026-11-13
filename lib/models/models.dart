@@ -404,7 +404,7 @@ class QuestionScore {
   /// 正确答案（主观题为空）。
   final String? correctAnswer;
 
-  /// 作答情况：√（正确）、0/B（错误且作答B）、0/3/4（主观题得分）等。
+  /// 作答情况：√（正确）、0/B 或 1/D（得分/所选选项）、0/1/3（主观题得分）等。
   final String? answerStatus;
 
   /// 年级最高分。
@@ -423,13 +423,19 @@ class QuestionScore {
   final String? ability;
 
   /// 根据作答情况推导「我的得分」。
-  /// √ 表示满分；0、0/B 表示 0 分；数字表示主观题得分。
+  ///
+  /// 平台格式：
+  /// - `√`：客观题全对，记满分；
+  /// - `0/B`、`1/D`：客观题「得分/所选选项」，多选题可部分得分；
+  /// - `0`、`1`、`11`：主观题得分；
+  /// - 空：未作答。
   double get myScore {
-    final s = answerStatus ?? '';
-    if (s == '√') return fullScore;
+    final s = (answerStatus ?? '').trim();
     if (s.isEmpty) return 0;
-    if (s.startsWith('0')) return 0;
-    return double.tryParse(s) ?? 0;
+    if (s == '√' || s == '✓') return fullScore;
+    final slash = s.indexOf('/');
+    final scoreText = (slash >= 0 ? s.substring(0, slash) : s).trim();
+    return double.tryParse(scoreText) ?? 0;
   }
 
   /// 我的得分率（0～1）。
@@ -444,12 +450,16 @@ class QuestionScore {
   /// 是否为部分得分。
   bool get isPartial => !isFullMark && !isZero;
 
-  /// 客观题中答错的选项（由「0/B」这类作答情况推导）。
+  /// 客观题中实际作答的选项。
+  ///
+  /// 「作答情况」形如 `0/B`、`1/D`，斜杠后是学生选择的选项；全对（`√`）
+  /// 时没有该信息，由调用方回退到正确答案。
   String? get selectedAnswer {
-    final match = RegExp(r'^0/(.+)$').firstMatch(answerStatus ?? '');
-    if (match == null) return null;
-    final value = match.group(1)?.trim();
-    return value == null || value.isEmpty ? null : value;
+    final s = (answerStatus ?? '').trim();
+    final slash = s.indexOf('/');
+    if (slash < 0) return null;
+    final value = s.substring(slash + 1).trim();
+    return value.isEmpty ? null : value;
   }
 }
 

@@ -268,6 +268,37 @@ void main() {
       expect(partial.knowledgePoint, '史料实证');
       expect(partial.ability, isNull);
     });
+
+    test('解析多选部分得分（得分/选项），保留实际得分与所选答案', () {
+      // 实际报告的「卷面作答」只有 7 列，且多选题作答情况为 `1/D`。
+      final report = Parsers.parseSubjectReport('''
+      <html><body>
+      <table>
+        <tr>
+          <td>小题编号</td><td>题型</td><td>满分</td><td>正确答案</td>
+          <td>作答情况</td><td>考查的知识点</td><td>考查的能力</td>
+        </tr>
+        <tr>
+          <td>25</td><td>不定项选择题</td><td>2</td><td>CD</td><td>1/D</td>
+          <td>离子反应</td><td>C1</td>
+        </tr>
+      </table>
+      </body></html>
+      ''');
+
+      final q = report.questions.single;
+      expect(q.myScore, 1);
+      expect(q.isPartial, isTrue);
+      expect(q.isZero, isFalse);
+      expect(q.selectedAnswer, 'D');
+      expect(q.correctAnswer, 'CD');
+      expect(q.knowledgePoint, '离子反应');
+      expect(q.ability, 'C1');
+      // 该报告没有年级三列，不能把知识点 / 能力列误当成年级分数。
+      expect(q.gradeMaxScore, isNull);
+      expect(q.gradeAverageScore, isNull);
+      expect(q.gradeScoreRate, isNull);
+    });
   });
 
   group('登录历史解析', () {

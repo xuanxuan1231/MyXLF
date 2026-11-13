@@ -169,4 +169,41 @@ void main() {
     expect(find.textContaining('年级得分率'), findsOneWidget);
     expect(find.textContaining('世界近代史'), findsWidgets);
   });
+
+  testWidgets('多选部分得分显示实际得分与所选答案', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final questions = [
+      _question(
+        number: '25',
+        type: '不定项选择题',
+        fullScore: 2,
+        correctAnswer: 'CD',
+        answerStatus: '1/D',
+        knowledgePoint: '离子反应',
+        ability: 'C1',
+      ),
+    ];
+
+    await tester.pumpWidget(
+      _wrap(QuestionAnswersSection(questions: questions)),
+    );
+    await tester.pumpAndSettle();
+
+    // 1/2 分，而不是 0 分；列表摘要显示学生实际所选的 D。
+    expect(find.text('/2'), findsOneWidget);
+    expect(find.textContaining('你选 D'), findsOneWidget);
+    expect(find.textContaining('正确 CD'), findsOneWidget);
+
+    await tester.tap(find.textContaining('第 25 题'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('我的作答'), findsOneWidget);
+    expect(find.text('D'), findsOneWidget);
+    expect(find.text('CD'), findsOneWidget);
+    expect(find.textContaining('部分得分'), findsWidgets);
+  });
 }
