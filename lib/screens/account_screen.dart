@@ -195,8 +195,6 @@ class AccountScreen extends StatelessWidget {
       ),
     );
 
-    // 宽屏：左侧个人信息固定，右侧设置分组纵向排列。
-    final twoPane = context.useTwoPaneLayout;
     final settings = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -210,28 +208,42 @@ class AccountScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('账户')),
-      body: ListView(
-        padding: adaptivePadding(
-          context,
-          maxWidth: twoPane ? 1040 : 760,
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-        ),
-        children: [
-          if (twoPane)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 5, child: profileCard),
-                const SizedBox(width: 24),
-                Expanded(flex: 6, child: settings),
-              ],
-            )
-          else ...[
-            profileCard,
-            const SizedBox(height: 24),
-            settings,
-          ],
-        ],
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          // 宽屏：左侧个人信息固定，右侧设置分组纵向排列。
+          final twoPane = constraints.maxWidth >= AppBreakpoints.twoPane;
+          final content = twoPane
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 5, child: profileCard),
+                    const SizedBox(width: 24),
+                    Expanded(flex: 6, child: settings),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [profileCard, const SizedBox(height: 24), settings],
+                );
+
+          return AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            layoutBuilder: expandedSwitcherLayout,
+            child: KeyedSubtree(
+              key: ValueKey(twoPane),
+              child: ListView(
+                padding: centeredPadding(
+                  constraints.maxWidth,
+                  maxWidth: twoPane ? 1040 : 760,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                ),
+                children: [content],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

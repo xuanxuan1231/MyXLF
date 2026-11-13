@@ -74,7 +74,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
         title: const Text('成绩分析'),
         actions: [
           // 桌面端没有下拉刷新手势，提供显式刷新入口。
-          if (context.showRefreshAction)
+          if (context.isDesktopPlatform)
             IconButton(
               tooltip: '刷新成绩分析',
               onPressed: _loading ? null : _load,
@@ -122,10 +122,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
       if (report.chartImages.isNotEmpty)
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sectionTitle('成绩图表'),
-            ..._buildChartImages(report),
-          ],
+          children: [_sectionTitle('成绩图表'), ..._buildChartImages(report)],
         ),
     ];
 

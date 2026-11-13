@@ -105,78 +105,120 @@ class _MainShellState extends State<MainShell> {
     setState(() => _index = index);
     // Tab 切换也计入页面浏览（$screen 事件）。
     unawaited(
-      TelemetryService.instance.captureScreen(
-        index == 0 ? 'Home' : 'Account',
-      ),
+      TelemetryService.instance.captureScreen(index == 0 ? 'Home' : 'Account'),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final body = IndexedStack(
+    return _AdaptiveShell(
       index: _index,
-      children: [
-        HomeScreen(
-          key: ValueKey('home_${_account.username}'),
-          account: _account,
-          loginResult: _loginResult,
-        ),
-        AccountScreen(
-          account: _account,
-          loginResult: _loginResult,
-          onSwitchAccount: _switchAccount,
-          onDefaultChanged: _changeDefault,
-        ),
-      ],
+      onSelected: _selectTab,
+      body: IndexedStack(
+        index: _index,
+        children: [
+          HomeScreen(
+            key: ValueKey('home_${_account.username}'),
+            account: _account,
+            loginResult: _loginResult,
+          ),
+          AccountScreen(
+            account: _account,
+            loginResult: _loginResult,
+            onSwitchAccount: _switchAccount,
+            onDefaultChanged: _changeDefault,
+          ),
+        ],
+      ),
     );
+  }
+}
 
-    // 桌面 / 平板横屏：侧边导航；手机与平板竖屏：M3E 悬浮底部导航。
-    if (context.useSideNavigation) {
-      return Scaffold(
-        body: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SafeArea(
-              right: false,
-              bottom: false,
-              child: _SideNavigationRail(
-                index: _index,
-                extended: context.useExtendedNavigation,
-                onSelected: _selectTab,
-              ),
-            ),
-            const VerticalDivider(width: 1, thickness: 1),
-            Expanded(
-              child: SafeArea(
-                top: false,
-                left: false,
-                right: false,
-                // 让子页面按「扣除侧边导航后的可用宽度」做响应式判断，
-                // 避免内容区按整个窗口宽度留白而过窄。
-                child: LayoutBuilder(
-                  builder: (context, constraints) => MediaQuery(
-                    data: MediaQuery.of(context).copyWith(
-                      size: Size(
-                        constraints.maxWidth,
-                        constraints.maxHeight,
+/// 根据可用宽度在侧边导航与底部导航之间切换。
+///
+/// 宽度通过 [LayoutBuilder] 读取：拖动窗口时只重建这一层轻量布局，
+/// [body] 仍是同一个组件实例，页面内容不会跟着每帧重建。
+/// 导航栏的显示 / 隐藏使用尺寸动画过渡。
+class _AdaptiveShell extends StatelessWidget {
+  const _AdaptiveShell({
+    required this.body,
+    required this.index,
+    required this.onSelected,
+  });
+
+  final Widget body;
+  final int index;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= AppBreakpoints.expanded;
+        final extended = constraints.maxWidth >= AppBreakpoints.large;
+        final railWidth = extended ? 216.0 : 72.0;
+
+        return Scaffold(
+          body: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 侧边导航用宽度动画展开 / 收起，避免断点切换时突然跳变。
+              // 始终保留 rail，只裁剪宽度，这样窗口缩放时不会丢失导航状态。
+              ExcludeSemantics(
+                excluding: !wide,
+                child: ExcludeFocus(
+                  excluding: !wide,
+                  child: IgnorePointer(
+                    ignoring: !wide,
+                    child: TickerMode(
+                      enabled: wide,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        width: wide ? railWidth : 0,
+                        child: ClipRect(
+                          child: OverflowBox(
+                            alignment: Alignment.centerLeft,
+                            minWidth: railWidth,
+                            maxWidth: railWidth,
+                            child: SafeArea(
+                              right: false,
+                              bottom: false,
+                              child: _SideNavigationRail(
+                                index: index,
+                                extended: extended,
+                                onSelected: onSelected,
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                    child: body,
                   ),
                 ),
               ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Scaffold(
-      body: body,
-      bottomNavigationBar: _FloatingNavigationBar(
-        index: _index,
-        onSelected: _selectTab,
-      ),
+              Expanded(
+                key: const ValueKey('shell-body'),
+                child: SafeArea(
+                  top: false,
+                  left: false,
+                  right: false,
+                  child: body,
+                ),
+              ),
+            ],
+          ),
+          // 底部导航的高度同样做动画，桌面切换时内容区平滑扩展。
+          bottomNavigationBar: AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: wide
+                ? const SizedBox(width: double.infinity)
+                : _FloatingNavigationBar(index: index, onSelected: onSelected),
+          ),
+        );
+      },
     );
   }
 }
@@ -221,10 +263,7 @@ class _SideNavigationRail extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: logo,
-            ),
+            ClipRRect(borderRadius: BorderRadius.circular(10), child: logo),
             if (extended) ...[
               const SizedBox(height: 8),
               Text(

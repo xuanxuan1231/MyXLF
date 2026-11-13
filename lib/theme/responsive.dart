@@ -41,9 +41,6 @@ extension AppResponsiveContext on BuildContext {
         return false;
     }
   }
-
-  /// 是否展示桌面端专属的刷新按钮。
-  bool get showRefreshAction => useSideNavigation || isDesktopPlatform;
 }
 
 /// 为滚动页面计算居中的内容边距。
@@ -55,14 +52,62 @@ EdgeInsets adaptivePadding(
   required EdgeInsets padding,
   required double maxWidth,
 }) {
-  final extra = ((context.screenWidth - maxWidth) / 2).clamp(
-    0.0,
-    double.infinity,
-  ).toDouble();
+  return centeredPadding(
+    context.screenWidth,
+    padding: padding,
+    maxWidth: maxWidth,
+  );
+}
+
+/// 根据实际可用宽度计算居中边距。
+///
+/// 放在 `LayoutBuilder` 里使用可以避免依赖 `MediaQuery`，窗口拖动时只会
+/// 重新布局，而不会让整棵页面组件树每帧重建。
+EdgeInsets centeredPadding(
+  double availableWidth, {
+  required EdgeInsets padding,
+  required double maxWidth,
+}) {
+  final extra = ((availableWidth - maxWidth) / 2)
+      .clamp(0.0, double.infinity)
+      .toDouble();
   return EdgeInsets.fromLTRB(
     padding.left + extra,
     padding.top,
     padding.right + extra,
     padding.bottom,
   );
+}
+
+/// `AnimatedSwitcher` 的布局：新旧内容都撑满可用区域，避免切换时尺寸跳动。
+Widget expandedSwitcherLayout(
+  Widget? currentChild,
+  List<Widget> previousChildren,
+) {
+  return Stack(
+    fit: StackFit.expand,
+    alignment: Alignment.topCenter,
+    children: [...previousChildren, if (currentChild != null) currentChild],
+  );
+}
+
+/// 把滚动内容限制在可读宽度内并水平居中。
+///
+/// 只影响布局、不依赖 `MediaQuery`，因此窗口连续缩放时不会触发子组件重建。
+class ContentWidth extends StatelessWidget {
+  const ContentWidth({super.key, required this.child, required this.maxWidth});
+
+  final Widget child;
+  final double maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: child,
+      ),
+    );
+  }
 }

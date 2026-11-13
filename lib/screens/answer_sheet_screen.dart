@@ -50,8 +50,10 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
       _error = null;
     });
     try {
-      final urls = await XlfClient.instance
-          .fetchAnswerSheetImages(widget.form, typical: widget.typical);
+      final urls = await XlfClient.instance.fetchAnswerSheetImages(
+        widget.form,
+        typical: widget.typical,
+      );
       if (!mounted) return;
       setState(() {
         _urls = urls;
@@ -129,8 +131,10 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
 
   Future<void> _save(String url, int index) {
     return _runPageAction(url, index, (bytes, fileName) async {
-      final outcome =
-          await ImageActions.saveToGallery(bytes, fileName: fileName);
+      final outcome = await ImageActions.saveToGallery(
+        bytes,
+        fileName: fileName,
+      );
       _showMessage(switch (outcome.target) {
         SaveTarget.gallery => '已保存到相册',
         SaveTarget.file => '已保存到 ${outcome.path}',
@@ -146,7 +150,7 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
       appBar: AppBar(
         title: Text(widget.title),
         actions: [
-          if (context.showRefreshAction)
+          if (context.isDesktopPlatform)
             IconButton(
               tooltip: '刷新答卷图片',
               onPressed: _loading ? null : _load,
@@ -183,15 +187,14 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
     }
     return M3EPullToRefreshIndicator(
       onRefresh: _load,
-      child: ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: adaptivePadding(
-          context,
-          maxWidth: 900,
+      child: ContentWidth(
+        maxWidth: 900,
+        child: ListView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(12),
+          itemCount: _urls.length,
+          itemBuilder: (_, i) => _buildImage(_urls[i], i),
         ),
-        itemCount: _urls.length,
-        itemBuilder: (_, i) => _buildImage(_urls[i], i),
       ),
     );
   }
@@ -215,8 +218,9 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
                   padding: const EdgeInsets.only(left: 4),
                   child: Text(
                     '第 ${index + 1} 页',
-                    style: textTheme.bodySmall
-                        ?.copyWith(color: scheme.onSurfaceVariant),
+                    style: textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
                 const Spacer(),

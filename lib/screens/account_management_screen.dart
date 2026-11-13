@@ -228,7 +228,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       appBar: AppBar(
         title: const Text('账户管理'),
         actions: [
-          if (context.showRefreshAction)
+          if (context.isDesktopPlatform)
             IconButton(
               tooltip: '刷新账号列表',
               onPressed: _loading ? null : _refresh,
@@ -238,18 +238,17 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       ),
       body: _loading
           ? const Center(child: M3ECircularProgressIndicator())
-          : M3ESegmentedList.builder(
-              itemCount: _accounts.length,
-              padding: EdgeInsets.zero,
-              gap: 2,
-              outerRadius: 24,
-              listPadding: adaptivePadding(
-                context,
-                maxWidth: 760,
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+          : ContentWidth(
+              maxWidth: 760,
+              child: M3ESegmentedList.builder(
+                itemCount: _accounts.length,
+                padding: EdgeInsets.zero,
+                gap: 2,
+                outerRadius: 24,
+                listPadding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                onTap: (i) => _switchTo(_accounts[i]),
+                itemBuilder: (_, i) => _buildItem(_accounts[i]),
               ),
-              onTap: (i) => _switchTo(_accounts[i]),
-              itemBuilder: (_, i) => _buildItem(_accounts[i]),
             ),
       floatingActionButton: M3EExtendedFab(
         onPressed: _addAccount,

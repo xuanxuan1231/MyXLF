@@ -6,9 +6,9 @@ import '../theme/responsive.dart';
 /// 报告页的双栏布局。
 ///
 /// - 窄屏 / 平板竖屏：左栏与右栏依次排成单列，整体一起滚动。
-/// - 宽屏：左栏固定，右栏独立滚动；两栏各自拥有独立滚动条，
-///   因此左栏内容过长时也可以在左栏内单独滚动，不会把右栏顶出视口。
-class ReportSplitLayout extends StatefulWidget {
+/// - 宽屏：左栏固定，右栏独立滚动；左栏内容过长时也可以在左栏内单独滚动。
+/// - 单栏 / 双栏切换使用淡入淡出过渡，避免窗口缩放时布局突然跳变。
+class ReportSplitLayout extends StatelessWidget {
   const ReportSplitLayout({
     super.key,
     required this.leftSections,
@@ -33,92 +33,95 @@ class ReportSplitLayout extends StatefulWidget {
   final double maxWidth;
 
   @override
-  State<ReportSplitLayout> createState() => _ReportSplitLayoutState();
-}
-
-class _ReportSplitLayoutState extends State<ReportSplitLayout> {
-  /// 左栏使用独立控制器，避免和右栏争抢 PrimaryScrollController。
-  final ScrollController _leftController = ScrollController();
-
-  @override
-  void dispose() {
-    _leftController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (!context.useTwoPaneLayout) {
-      return M3EPullToRefreshIndicator(
-        onRefresh: widget.onRefresh,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: adaptivePadding(
-            context,
-            maxWidth: 1120,
-            padding: const EdgeInsets.all(16),
-          ),
-          children: [
-            for (var i = 0; i < widget.leftSections.length; i++) ...[
-              if (i > 0) const SizedBox(height: 20),
-              widget.leftSections[i],
-            ],
-            for (final section in widget.rightSections) ...[
-              const SizedBox(height: 20),
-              section,
-            ],
-          ],
-        ),
-      );
-    }
-
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 双栏整体居中，窗口再宽也不会把两栏拉得过开。
-        final extra = ((constraints.maxWidth - widget.maxWidth) / 2)
-            .clamp(0.0, double.infinity)
-            .toDouble();
-        return Padding(
-          padding: EdgeInsets.symmetric(horizontal: extra),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(
-                width: widget.leftWidth,
-                child: SingleChildScrollView(
-                  controller: _leftController,
-                  primary: false,
-                  padding: const EdgeInsets.fromLTRB(16, 16, 12, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (var i = 0; i < widget.leftSections.length; i++) ...[
-                        if (i > 0) const SizedBox(height: 20),
-                        widget.leftSections[i],
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              Expanded(
-                child: M3EPullToRefreshIndicator(
-                  onRefresh: widget.onRefresh,
-                  child: ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(12, 16, 16, 24),
-                    children: [
-                      for (var i = 0; i < widget.rightSections.length; i++) ...[
-                        if (i > 0) const SizedBox(height: 20),
-                        widget.rightSections[i],
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ],
+        final twoPane = constraints.maxWidth >= AppBreakpoints.twoPane;
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          layoutBuilder: expandedSwitcherLayout,
+          child: KeyedSubtree(
+            key: ValueKey(twoPane),
+            child: twoPane
+                ? _buildTwoPane(constraints.maxWidth)
+                : _buildSinglePane(constraints.maxWidth),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildSinglePane(double width) {
+    return M3EPullToRefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: centeredPadding(
+          width,
+          maxWidth: 1120,
+          padding: const EdgeInsets.all(16),
+        ),
+        children: [
+          for (var i = 0; i < leftSections.length; i++) ...[
+            if (i > 0) const SizedBox(height: 20),
+            leftSections[i],
+          ],
+          for (final section in rightSections) ...[
+            const SizedBox(height: 20),
+            section,
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTwoPane(double width) {
+    // 双栏整体居中，窗口再宽也不会把两栏拉得过开。
+    final extra = ((width - maxWidth) / 2)
+        .clamp(0.0, double.infinity)
+        .toDouble();
+
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: extra),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: leftWidth,
+            // 左栏独立滚动：右栏滚动时左栏保持固定，左栏内容过长时也能单独滚动。
+            child: SingleChildScrollView(
+              primary: false,
+              padding: const EdgeInsets.fromLTRB(16, 16, 12, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < leftSections.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 20),
+                    leftSections[i],
+                  ],
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: M3EPullToRefreshIndicator(
+              onRefresh: onRefresh,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(12, 16, 16, 24),
+                children: [
+                  for (var i = 0; i < rightSections.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 20),
+                    rightSections[i],
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
