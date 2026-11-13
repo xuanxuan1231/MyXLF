@@ -356,7 +356,7 @@ jobs:
           if-no-files-found: error
 
   build-windows:
-    name: 构建 Windows 安装包
+    name: 构建 Windows 包
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_windows }}
     needs: prepare
     runs-on: windows-latest
@@ -397,10 +397,10 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    name: 构建 macOS 安装包
+    name: 构建 macOS (Intel) 包
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_macos }}
     needs: prepare
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     timeout-minutes: 60
     env:
       APP_VERSION: ${{ needs.prepare.outputs.version }}
@@ -438,7 +438,7 @@ jobs:
           if-no-files-found: error
 
   build-linux:
-    name: 构建 Linux 安装包
+    name: 构建 Linux 包
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_linux }}
     needs: prepare
     runs-on: ubuntu-24.04
