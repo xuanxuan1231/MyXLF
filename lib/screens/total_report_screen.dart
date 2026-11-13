@@ -4,6 +4,7 @@ import 'package:m3e_core/m3e_core.dart';
 import '../models/models.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
+import '../theme/responsive.dart';
 import '../widgets/xlf_image.dart';
 import 'subject_report_screen.dart';
 
@@ -68,7 +69,18 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('成绩分析')),
+      appBar: AppBar(
+        title: const Text('成绩分析'),
+        actions: [
+          // 桌面端没有下拉刷新手势，提供显式刷新入口。
+          if (context.showRefreshAction)
+            IconButton(
+              tooltip: '刷新成绩分析',
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: _buildBody(),
     );
   }
@@ -77,31 +89,66 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     if (_loading) return const Center(child: M3ECircularProgressIndicator());
     if (_error != null) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(_error!),
-            const SizedBox(height: 12),
-            M3EFilledButton(onPressed: _load, child: const Text('重试')),
-          ],
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(_error!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                M3EFilledButton(onPressed: _load, child: const Text('重试')),
+              ],
+            ),
+          ),
         ),
       );
     }
     final report = _report!;
+    final performance = _hasPerformance(report)
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sectionTitle(
+                '学习表现',
+                onInfo: _hasNotes(report) ? () => _showNotes(report) : null,
+              ),
+              _buildPerformance(report),
+            ],
+          )
+        : null;
+
+    // 宽屏时总分概览与学习表现并排，图表仍保持整行宽度。
+    final twoPane = context.useTwoPaneLayout;
     return M3EPullToRefreshIndicator(
       onRefresh: _load,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
+        padding: adaptivePadding(
+          context,
+          maxWidth: 1120,
+          padding: const EdgeInsets.all(16),
+        ),
         children: [
-          _buildOverview(report),
-          if (_hasPerformance(report)) ...[
-            const SizedBox(height: 20),
-            _sectionTitle(
-              '学习表现',
-              onInfo: _hasNotes(report) ? () => _showNotes(report) : null,
-            ),
-            _buildPerformance(report),
+          if (twoPane)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 5, child: _buildOverview(report)),
+                const SizedBox(width: 20),
+                Expanded(
+                  flex: 6,
+                  child: performance ?? const SizedBox.shrink(),
+                ),
+              ],
+            )
+          else ...[
+            _buildOverview(report),
+            if (performance != null) ...[
+              const SizedBox(height: 20),
+              performance,
+            ],
           ],
           if (report.chartImages.isNotEmpty) ...[
             const SizedBox(height: 20),

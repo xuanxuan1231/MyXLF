@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../config.dart';
 import '../services/update_checker.dart';
+import '../theme/responsive.dart';
 import '../widgets/update_dialog.dart';
 
 /// 关于页：应用信息、版本号、项目主页与更新检查。
@@ -119,7 +120,11 @@ class _AboutScreenState extends State<AboutScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('关于')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: adaptivePadding(
+          context,
+          maxWidth: 760,
+          padding: const EdgeInsets.all(16),
+        ),
         children: [
           // 应用信息：图标、名称、版本与简介。
           M3ESegmentedList(

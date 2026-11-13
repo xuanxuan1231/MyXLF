@@ -87,6 +87,8 @@ class XlfApp extends StatelessWidget {
       darkTheme: AppTheme.dark,
       // 颜色模式跟随系统：系统切换亮色 / 暗色时自动重建主题。
       themeMode: ThemeMode.system,
+      // 桌面端支持鼠标拖动滚动（下拉刷新、横向图表）。
+      scrollBehavior: const AppScrollBehavior(),
       // 页面浏览上报（$screen 事件，用于参与度统计）。
       navigatorObservers: [TelemetryScreenObserver()],
       home: const BootstrapScreen(),

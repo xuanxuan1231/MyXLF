@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
+import '../theme/responsive.dart';
 import '../widgets/question_answers_section.dart';
 import '../widgets/score_rate_chart.dart';
 import '../widgets/xlf_image.dart';
@@ -61,7 +62,18 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.link.subjectName} · 学科分析')),
+      appBar: AppBar(
+        title: Text('${widget.link.subjectName} · 学科分析'),
+        actions: [
+          // 桌面端没有下拉刷新手势，提供显式刷新入口。
+          if (context.showRefreshAction)
+            IconButton(
+              tooltip: '刷新学科分析',
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: _buildBody(),
     );
   }
@@ -70,35 +82,68 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
     if (_loading) return const Center(child: M3ECircularProgressIndicator());
     if (_error != null) {
       return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              M3EFilledButton(onPressed: _load, child: const Text('重试')),
-            ],
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(_error!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                M3EFilledButton(onPressed: _load, child: const Text('重试')),
+              ],
+            ),
           ),
         ),
       );
     }
     final report = _report!;
+    final summary = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildHero(report),
+        if (report.answerSheet != null) ...[
+          const SizedBox(height: 20),
+          _sectionTitle('答卷'),
+          _buildAnswerSheetSection(report),
+        ],
+      ],
+    );
+    final questions = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _sectionTitle('卷面作答'),
+        QuestionAnswersSection(questions: report.questions),
+      ],
+    );
+
+    // 宽屏时左栏放成绩概况与答卷入口，右栏展示逐题作答，避免单栏过长。
+    final twoPane = context.useTwoPaneLayout;
     return M3EPullToRefreshIndicator(
       onRefresh: _load,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
+        padding: adaptivePadding(
+          context,
+          maxWidth: 1120,
+          padding: const EdgeInsets.all(16),
+        ),
         children: [
-          _buildHero(report),
-          if (report.answerSheet != null) ...[
+          if (twoPane)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: 380, child: summary),
+                const SizedBox(width: 24),
+                Expanded(child: questions),
+              ],
+            )
+          else ...[
+            summary,
             const SizedBox(height: 20),
-            _sectionTitle('答卷'),
-            _buildAnswerSheetSection(report),
+            questions,
           ],
-          const SizedBox(height: 20),
-          _sectionTitle('卷面作答'),
-          QuestionAnswersSection(questions: report.questions),
           if (_hasGainLoss(report)) ...[
             const SizedBox(height: 20),
             _sectionTitle('得失分分析'),
