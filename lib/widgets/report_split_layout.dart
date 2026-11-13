@@ -100,7 +100,6 @@ class _ReportSplitLayoutState extends State<ReportSplitLayout> {
                   ),
                 ),
               ),
-              const VerticalDivider(width: 1, thickness: 1),
               Expanded(
                 child: M3EPullToRefreshIndicator(
                   onRefresh: widget.onRefresh,
