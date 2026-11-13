@@ -6,9 +6,10 @@ import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../widgets/chart_image.dart';
 import '../widgets/question_answers_section.dart';
+import '../widgets/report_split_layout.dart';
 import '../widgets/score_rate_chart.dart';
-import '../widgets/xlf_image.dart';
 import 'answer_sheet_screen.dart';
 
 /// 学科分析报告（成绩概况 + 答卷 + 卷面作答 + 得失分分析）。
@@ -99,63 +100,50 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
       );
     }
     final report = _report!;
-    final summary = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildHero(report),
-        if (report.answerSheet != null) ...[
-          const SizedBox(height: 20),
-          _sectionTitle('答卷'),
-          _buildAnswerSheetSection(report),
-        ],
-      ],
-    );
-    final questions = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _sectionTitle('卷面作答'),
-        QuestionAnswersSection(questions: report.questions),
-      ],
-    );
-
-    // 宽屏时左栏放成绩概况与答卷入口，右栏展示逐题作答，避免单栏过长。
-    final twoPane = context.useTwoPaneLayout;
-    return M3EPullToRefreshIndicator(
-      onRefresh: _load,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: adaptivePadding(
-          context,
-          maxWidth: 1120,
-          padding: const EdgeInsets.all(16),
-        ),
-        children: [
-          if (twoPane)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(width: 380, child: summary),
-                const SizedBox(width: 24),
-                Expanded(child: questions),
-              ],
-            )
-          else ...[
-            summary,
-            const SizedBox(height: 20),
-            questions,
+    final leftSections = <Widget>[
+      _buildHero(report),
+      if (report.answerSheet != null)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionTitle('答卷'),
+            _buildAnswerSheetSection(report),
           ],
-          if (_hasGainLoss(report)) ...[
-            const SizedBox(height: 20),
+        ),
+    ];
+    final rightSections = <Widget>[
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _sectionTitle('卷面作答'),
+          QuestionAnswersSection(questions: report.questions),
+        ],
+      ),
+      if (_hasGainLoss(report))
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
             _sectionTitle('得失分分析'),
             _card(_buildGainLoss(report)),
           ],
-          if (report.chartImages.isNotEmpty) ...[
-            const SizedBox(height: 20),
+        ),
+      if (report.chartImages.isNotEmpty)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
             _sectionTitle('平台图表'),
             ..._buildChartImages(report),
           ],
-        ],
-      ),
+        ),
+    ];
+
+    // 宽屏：左栏固定显示成绩概况与答卷入口，右栏独立滚动逐题作答、
+    // 得失分分析与平台图表；左栏过高时可以单独滚动。
+    return ReportSplitLayout(
+      leftSections: leftSections,
+      rightSections: rightSections,
+      leftWidth: 380,
+      onRefresh: _load,
     );
   }
 
@@ -415,20 +403,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
   // ---- 图表 ----
 
   List<Widget> _buildChartImages(SubjectReport report) {
-    return [
-      for (final url in report.chartImages)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: XlfImage(
-              url: url,
-              width: double.infinity,
-              fit: BoxFit.fitWidth,
-            ),
-          ),
-        ),
-    ];
+    return [ChartImageGrid(urls: report.chartImages)];
   }
 
   String _fmt(double v) {

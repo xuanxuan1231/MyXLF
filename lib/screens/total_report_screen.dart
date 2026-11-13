@@ -5,7 +5,8 @@ import '../models/models.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
-import '../widgets/xlf_image.dart';
+import '../widgets/chart_image.dart';
+import '../widgets/report_split_layout.dart';
 import 'subject_report_screen.dart';
 
 /// 总分分析报告（成绩概览 + 学习表现 + 成绩图表）。
@@ -106,57 +107,35 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
       );
     }
     final report = _report!;
-    final performance = _hasPerformance(report)
-        ? Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _sectionTitle(
-                '学习表现',
-                onInfo: _hasNotes(report) ? () => _showNotes(report) : null,
-              ),
-              _buildPerformance(report),
-            ],
-          )
-        : null;
-
-    // 宽屏时总分概览与学习表现并排，图表仍保持整行宽度。
-    final twoPane = context.useTwoPaneLayout;
-    return M3EPullToRefreshIndicator(
-      onRefresh: _load,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: adaptivePadding(
-          context,
-          maxWidth: 1120,
-          padding: const EdgeInsets.all(16),
-        ),
-        children: [
-          if (twoPane)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 5, child: _buildOverview(report)),
-                const SizedBox(width: 20),
-                Expanded(
-                  flex: 6,
-                  child: performance ?? const SizedBox.shrink(),
-                ),
-              ],
-            )
-          else ...[
-            _buildOverview(report),
-            if (performance != null) ...[
-              const SizedBox(height: 20),
-              performance,
-            ],
+    final rightSections = <Widget>[
+      if (_hasPerformance(report))
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionTitle(
+              '学习表现',
+              onInfo: _hasNotes(report) ? () => _showNotes(report) : null,
+            ),
+            _buildPerformance(report),
           ],
-          if (report.chartImages.isNotEmpty) ...[
-            const SizedBox(height: 20),
+        ),
+      if (report.chartImages.isNotEmpty)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
             _sectionTitle('成绩图表'),
             ..._buildChartImages(report),
           ],
-        ],
-      ),
+        ),
+    ];
+
+    // 宽屏：左栏固定显示总分概览，右栏独立滚动学习表现与图表；
+    // 左栏科目过多时可以单独滚动，不会影响右栏。
+    return ReportSplitLayout(
+      leftSections: [_buildOverview(report)],
+      rightSections: rightSections,
+      leftWidth: 440,
+      onRefresh: _load,
     );
   }
 
@@ -797,20 +776,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
   // ---- 图表 ----
 
   List<Widget> _buildChartImages(TotalReport report) {
-    return [
-      for (final url in report.chartImages)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: XlfImage(
-              url: url,
-              width: double.infinity,
-              fit: BoxFit.fitWidth,
-            ),
-          ),
-        ),
-    ];
+    return [ChartImageGrid(urls: report.chartImages)];
   }
 
   // ---- 文本处理 ----
