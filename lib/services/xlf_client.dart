@@ -736,23 +736,17 @@ class XlfClient {
 
   /// 获取典型答卷的题号导航与默认小题的图片。
   Future<TypicalAnswerSheet> fetchTypicalAnswerSheet(
-    AnswerSheetForm form, {
-    bool refresh = false,
-  }) async {
+    AnswerSheetForm form,
+  ) async {
     final baseKey = _typicalCacheKey(form);
-    if (!refresh) {
-      final cached = _typicalSheetCache[baseKey];
-      if (cached != null) return cached;
-    }
+    final cached = _typicalSheetCache[baseKey];
+    if (cached != null) return cached;
 
     final resp = await _postForm(
       '$kBaseUrl/report/ShowStudentImgsAction.a?showItemTypicalImg',
       form.toForm(),
     );
     final sheet = Parsers.parseTypicalAnswerSheet(resp.data.toString());
-    if (refresh) {
-      _typicalImageCache.removeWhere((key, _) => key.startsWith('$baseKey|'));
-    }
     _typicalSheetCache[baseKey] = sheet;
     for (final item in sheet.items) {
       if (item.hasImages) {
@@ -765,15 +759,12 @@ class XlfClient {
   /// 按小题 ID 获取典型答卷图片。
   Future<List<TypicalAnswerImage>> fetchTypicalAnswerImages(
     AnswerSheetForm form,
-    String itemId, {
-    bool refresh = false,
-  }) async {
+    String itemId,
+  ) async {
     final baseKey = _typicalCacheKey(form);
     final cacheKey = '$baseKey|$itemId';
-    if (!refresh) {
-      final cached = _typicalImageCache[cacheKey];
-      if (cached != null) return cached;
-    }
+    final cached = _typicalImageCache[cacheKey];
+    if (cached != null) return cached;
 
     final resp = await _postForm(
       '$kBaseUrl/report/ShowStudentImgsAction.a?showItemTypicalImg',
@@ -791,15 +782,14 @@ class XlfClient {
   /// 按题号获取典型答卷图片；会自动补齐题号到小题 ID 的映射。
   Future<List<TypicalAnswerImage>> fetchTypicalAnswerImagesForQuestion(
     AnswerSheetForm form,
-    String number, {
-    bool refresh = false,
-  }) async {
-    final sheet = await fetchTypicalAnswerSheet(form, refresh: refresh);
+    String number,
+  ) async {
+    final sheet = await fetchTypicalAnswerSheet(form);
     final item = sheet.itemForNumber(number);
     if (item == null) return const [];
     if (item.hasImages) return item.images;
     if (item.itemId.isEmpty) return const [];
-    return fetchTypicalAnswerImages(form, item.itemId, refresh: refresh);
+    return fetchTypicalAnswerImages(form, item.itemId);
   }
 
   String _typicalCacheKey(AnswerSheetForm form) {

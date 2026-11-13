@@ -2,15 +2,14 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/models.dart';
 import '../screens/image_viewer_screen.dart';
-import '../screens/typical_answer_sheet_screen.dart';
 import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
 import 'xlf_image.dart';
 
 /// 题目详情中的典型答卷预览。
 ///
-/// 打开题目详情时按需加载该题的典型答卷缩略图，点击可全屏查看；
-/// 也可以直接进入完整的「典型答卷」页面继续切换题目。
+/// 打开题目详情时按需加载该题的典型答卷缩略图，点击可全屏查看。
+/// 该题没有典型答卷时整个区块不显示，避免占用详情空间。
 class TypicalAnswerPreview extends StatefulWidget {
   const TypicalAnswerPreview({
     super.key,
@@ -84,23 +83,15 @@ class _TypicalAnswerPreviewState extends State<TypicalAnswerPreview> {
     );
   }
 
-  void _openFullSheet() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => TypicalAnswerSheetScreen(
-          title: '典型答卷',
-          form: widget.form,
-          initialQuestionNumber: widget.questionNumber,
-        ),
-        settings: const RouteSettings(name: 'Answer Sheet'),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+
+    // 该题没有典型答卷时不显示整个区块。
+    if (!_loading && _error == null && _images.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -119,8 +110,6 @@ class _TypicalAnswerPreviewState extends State<TypicalAnswerPreview> {
                 ),
               ),
             ],
-            const Spacer(),
-            TextButton(onPressed: _openFullSheet, child: const Text('查看全部')),
           ],
         ),
         const SizedBox(height: 4),
@@ -160,25 +149,7 @@ class _TypicalAnswerPreviewState extends State<TypicalAnswerPreview> {
     }
 
     if (_images.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
-            Icon(
-              Icons.auto_stories_outlined,
-              size: 18,
-              color: scheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '该题暂无典型答卷',
-              style: textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      );
+      return const SizedBox.shrink();
     }
 
     return SizedBox(
