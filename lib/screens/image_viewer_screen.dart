@@ -92,8 +92,10 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
   Future<void> _save() async {
     final bytes = await ImageStore.load(widget.urls[_index]);
-    final outcome =
-        await ImageActions.saveToGallery(bytes, fileName: _fileName());
+    final outcome = await ImageActions.saveToGallery(
+      bytes,
+      fileName: _fileName(),
+    );
     if (!mounted) return;
     _showMessage(switch (outcome.target) {
       SaveTarget.gallery => '已保存到相册',
@@ -202,7 +204,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                           child: Text(
                             '${_index + 1} / ${widget.urls.length}'
                             '   双击缩放'
-                            '${context.useSideNavigation ? ' · ← → 切换' : ''}',
+                            '${context.isDesktopPlatform ? ' · ← → 切换' : ''}',
                             style: const TextStyle(
                               color: Colors.white70,
                               fontSize: 12,
@@ -241,15 +243,16 @@ class _ZoomableImageState extends State<_ZoomableImage>
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 220),
-    )..addListener(() {
-        final animation = _animation;
-        if (animation != null) {
-          _transformation.value = animation.value;
-        }
-      });
+    _animationController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 220),
+        )..addListener(() {
+          final animation = _animation;
+          if (animation != null) {
+            _transformation.value = animation.value;
+          }
+        });
   }
 
   @override
@@ -270,19 +273,22 @@ class _ZoomableImageState extends State<_ZoomableImage>
     } else {
       const scale = 2.5;
       final position = _doubleTapDetails?.localPosition ?? Offset.zero;
-      target = Matrix4.translationValues(
-        -position.dx * (scale - 1),
-        -position.dy * (scale - 1),
-        0,
-      ) * Matrix4.diagonal3Values(scale, scale, 1);
+      target =
+          Matrix4.translationValues(
+            -position.dx * (scale - 1),
+            -position.dy * (scale - 1),
+            0,
+          ) *
+          Matrix4.diagonal3Values(scale, scale, 1);
     }
 
-    _animation = Matrix4Tween(
-      begin: _transformation.value,
-      end: target,
-    ).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
-    );
+    _animation = Matrix4Tween(begin: _transformation.value, end: target)
+        .animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
     _animationController.forward(from: 0);
   }
 

@@ -119,104 +119,103 @@ class _AboutScreenState extends State<AboutScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('关于')),
-      body: ListView(
-        padding: adaptivePadding(
-          context,
-          maxWidth: 760,
+      body: ContentWidth(
+        maxWidth: 760,
+        child: ListView(
           padding: const EdgeInsets.all(16),
+          children: [
+            // 应用信息：图标、名称、版本与简介。
+            M3ESegmentedList(
+              itemCount: 1,
+              outerRadius: 24,
+              padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
+              itemBuilder: (_, __) => Column(
+                children: [
+                  Image.asset(
+                    isDark
+                        ? 'assets/images/logo_dark.png'
+                        : 'assets/images/logo_light.png',
+                    width: 84,
+                    height: 84,
+                    semanticLabel: 'MyXLF',
+                  ),
+                  const SizedBox(height: 12),
+                  Text('MyXLF', style: textTheme.headlineSmall),
+                  const SizedBox(height: 4),
+                  Text(
+                    _version.isEmpty ? '版本读取中…' : '版本 $_version',
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '基于 Flutter 的成绩查询与分析客户端，'
+                    '用于查看考试列表、成绩报告、学科分析等内容。',
+                    textAlign: TextAlign.center,
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            // 项目主页。
+            M3ESegmentedList(
+              itemCount: 1,
+              outerRadius: 20,
+              padding: EdgeInsets.zero,
+              onTap: (_) => _openUrl(kGithubUrl),
+              itemBuilder: (_, __) => M3EListItem(
+                leading: Icon(Icons.public, color: scheme.onSurfaceVariant),
+                headline: const Text('项目主页'),
+                supportingText: Text(kGithubUrl),
+                trailing: Icon(
+                  Icons.open_in_new,
+                  size: 18,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            // 启动时自动检查更新：默认开启，可随时关闭。
+            M3ESegmentedList(
+              itemCount: 1,
+              outerRadius: 20,
+              padding: EdgeInsets.zero,
+              itemBuilder: (_, __) => SwitchListTile(
+                value: _autoCheckEnabled,
+                onChanged: !_autoCheckLoaded || _savingAutoCheck
+                    ? null
+                    : _toggleAutoCheck,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: const Text('启动时自动检查更新'),
+                subtitle: Text(
+                  _autoCheckEnabled ? '启动应用时自动检查新版本' : '已关闭，仍可手动检查更新',
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            M3EFilledButton.icon(
+              onPressed: _checking ? null : _checkUpdate,
+              size: M3EButtonSize.md,
+              icon: _checking
+                  ? const M3ECircularProgressIndicator(size: 20, strokeWidth: 2)
+                  : const Icon(Icons.system_update_alt),
+              label: Text(_checking ? '正在检查…' : '检查更新'),
+            ),
+            const SizedBox(height: 24),
+            Center(
+              child: Text(
+                '© ${DateTime.now().year} HelloSWX',
+                style: textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
         ),
-        children: [
-          // 应用信息：图标、名称、版本与简介。
-          M3ESegmentedList(
-            itemCount: 1,
-            outerRadius: 24,
-            padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
-            itemBuilder: (_, __) => Column(
-              children: [
-                Image.asset(
-                  isDark
-                      ? 'assets/images/logo_dark.png'
-                      : 'assets/images/logo_light.png',
-                  width: 84,
-                  height: 84,
-                  semanticLabel: 'MyXLF',
-                ),
-                const SizedBox(height: 12),
-                Text('MyXLF', style: textTheme.headlineSmall),
-                const SizedBox(height: 4),
-                Text(
-                  _version.isEmpty ? '版本读取中…' : '版本 $_version',
-                  style: textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  '基于 Flutter 的成绩查询与分析客户端，'
-                  '用于查看考试列表、成绩报告、学科分析等内容。',
-                  textAlign: TextAlign.center,
-                  style: textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          // 项目主页。
-          M3ESegmentedList(
-            itemCount: 1,
-            outerRadius: 20,
-            padding: EdgeInsets.zero,
-            onTap: (_) => _openUrl(kGithubUrl),
-            itemBuilder: (_, __) => M3EListItem(
-              leading: Icon(Icons.public, color: scheme.onSurfaceVariant),
-              headline: const Text('项目主页'),
-              supportingText: Text(kGithubUrl),
-              trailing: Icon(
-                Icons.open_in_new,
-                size: 18,
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          // 启动时自动检查更新：默认开启，可随时关闭。
-          M3ESegmentedList(
-            itemCount: 1,
-            outerRadius: 20,
-            padding: EdgeInsets.zero,
-            itemBuilder: (_, __) => SwitchListTile(
-              value: _autoCheckEnabled,
-              onChanged: !_autoCheckLoaded || _savingAutoCheck
-                  ? null
-                  : _toggleAutoCheck,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-              title: const Text('启动时自动检查更新'),
-              subtitle: Text(
-                _autoCheckEnabled ? '启动应用时自动检查新版本' : '已关闭，仍可手动检查更新',
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          M3EFilledButton.icon(
-            onPressed: _checking ? null : _checkUpdate,
-            size: M3EButtonSize.md,
-            icon: _checking
-                ? const M3ECircularProgressIndicator(size: 20, strokeWidth: 2)
-                : const Icon(Icons.system_update_alt),
-            label: Text(_checking ? '正在检查…' : '检查更新'),
-          ),
-          const SizedBox(height: 24),
-          Center(
-            child: Text(
-              '© ${DateTime.now().year} HelloSWX',
-              style: textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

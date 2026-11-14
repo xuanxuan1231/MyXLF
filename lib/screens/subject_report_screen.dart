@@ -69,7 +69,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
             subtitle: hasSubject ? '学科分析' : null,
             actions: [
               // 桌面端没有下拉刷新手势，提供显式刷新入口。
-              if (context.showRefreshAction)
+              if (context.isDesktopPlatform)
                 IconButton(
                   tooltip: '刷新学科分析',
                   onPressed: _loading ? null : _load,
@@ -109,10 +109,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
       if (report.answerSheet != null)
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sectionTitle('答卷'),
-            _buildAnswerSheetSection(report),
-          ],
+          children: [_sectionTitle('答卷'), _buildAnswerSheetSection(report)],
         ),
     ];
     final rightSections = <Widget>[
@@ -126,18 +123,12 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
       if (_hasGainLoss(report))
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sectionTitle('得失分分析'),
-            _card(_buildGainLoss(report)),
-          ],
+          children: [_sectionTitle('得失分分析'), _card(_buildGainLoss(report))],
         ),
       if (report.chartImages.isNotEmpty)
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sectionTitle('平台图表'),
-            ..._buildChartImages(report),
-          ],
+          children: [_sectionTitle('平台图表'), ..._buildChartImages(report)],
         ),
     ];
 

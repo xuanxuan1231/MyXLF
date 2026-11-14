@@ -39,7 +39,9 @@ class AppTopBar extends StatelessWidget {
     final scheme = theme.colorScheme;
     // 侧边导航属于宽屏布局；桌面平台即使窗口较窄也保持紧凑顶栏，
     // 避免把移动端的大标题栏带到桌面上。
-    final desktop = context.useSideNavigation || context.isDesktopPlatform;
+    // 把平台判断放在前面短路，桌面端就不用依赖 MediaQuery 宽度，
+    // 窗口缩放时不会每帧重建顶栏。
+    final desktop = context.isDesktopPlatform || context.useSideNavigation;
 
     if (desktop) {
       return SliverLayoutBuilder(

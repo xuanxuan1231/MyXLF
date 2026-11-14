@@ -18,11 +18,7 @@ class ChartImage extends StatelessWidget {
   Widget build(BuildContext context) {
     final image = ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child: XlfImage(
-        url: url,
-        width: double.infinity,
-        fit: BoxFit.fitWidth,
-      ),
+      child: XlfImage(url: url, width: double.infinity, fit: BoxFit.fitWidth),
     );
     final ratio = aspectRatio;
     if (ratio == null || !ratio.isFinite || ratio <= 0) return image;
@@ -180,7 +176,10 @@ class _ChartImageGridState extends State<ChartImageGrid> {
       return Center(
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: widget.maxSingleWidth),
-          child: ChartImage(url: urls.single, aspectRatio: _ratioOf(urls.single)),
+          child: ChartImage(
+            url: urls.single,
+            aspectRatio: _ratioOf(urls.single),
+          ),
         ),
       );
     }

@@ -196,8 +196,6 @@ class AccountScreen extends StatelessWidget {
       ),
     );
 
-    // 宽屏：左侧个人信息固定，右侧设置分组纵向排列。
-    final twoPane = context.useTwoPaneLayout;
     final settings = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -209,44 +207,46 @@ class AccountScreen extends StatelessWidget {
       ],
     );
 
-    return Scaffold(
-      body: CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          const AppTopBar(title: '账户'),
-          SliverPadding(
-            padding: adaptivePadding(
-              context,
-              maxWidth: twoPane ? 1040 : 760,
-              padding: EdgeInsets.fromLTRB(
-                16,
-                12,
-                16,
-                32 + context.floatingNavigationClearance,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 宽屏：左侧个人信息固定，右侧设置分组纵向排列。
+        final twoPane = constraints.maxWidth >= AppBreakpoints.twoPane;
+        final content = twoPane
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 5, child: profileCard),
+                  const SizedBox(width: 24),
+                  Expanded(flex: 6, child: settings),
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [profileCard, const SizedBox(height: 24), settings],
+              );
+
+        return Scaffold(
+          body: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              const AppTopBar(title: '账户'),
+              SliverPadding(
+                padding: centeredPadding(
+                  constraints.maxWidth,
+                  maxWidth: twoPane ? 1040 : 760,
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    12,
+                    16,
+                    32 + context.floatingNavigationClearance,
+                  ),
+                ),
+                sliver: SliverToBoxAdapter(child: content),
               ),
-            ),
-            sliver: SliverToBoxAdapter(
-              child: twoPane
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(flex: 5, child: profileCard),
-                        const SizedBox(width: 24),
-                        Expanded(flex: 6, child: settings),
-                      ],
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        profileCard,
-                        const SizedBox(height: 24),
-                        settings,
-                      ],
-                    ),
-            ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 

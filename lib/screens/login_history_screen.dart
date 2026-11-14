@@ -53,7 +53,7 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
       appBar: AppBar(
         title: const Text('登录历史'),
         actions: [
-          if (context.showRefreshAction)
+          if (context.isDesktopPlatform)
             IconButton(
               tooltip: '刷新登录历史',
               onPressed: _loading ? null : _load,
@@ -98,15 +98,16 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.history,
-                        size: 48, color: scheme.onSurfaceVariant),
+                    Icon(
+                      Icons.history,
+                      size: 48,
+                      color: scheme.onSurfaceVariant,
+                    ),
                     const SizedBox(height: 12),
                     const Text('暂无登录记录'),
                     const SizedBox(height: 4),
                     Text(
-                      context.showRefreshAction
-                          ? '下拉刷新或点击右上角刷新重试'
-                          : '下拉刷新重试',
+                      context.isDesktopPlatform ? '下拉刷新或点击右上角刷新重试' : '下拉刷新重试',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 12,
@@ -123,38 +124,33 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
     }
     return M3EPullToRefreshIndicator(
       onRefresh: _load,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: adaptivePadding(
-              context,
-              maxWidth: 760,
+      child: ContentWidth(
+        maxWidth: 760,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-            ),
-            child: Text(
-              '最近 30 天共 ${_entries.length} 次登录',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-          ),
-          Expanded(
-            child: M3ESegmentedList.builder(
-              itemCount: _entries.length,
-              padding: EdgeInsets.zero,
-              gap: 2,
-              outerRadius: 24,
-              listPadding: adaptivePadding(
-                context,
-                maxWidth: 760,
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              child: Text(
+                '最近 30 天共 ${_entries.length} 次登录',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
-              physics: const AlwaysScrollableScrollPhysics(),
-              itemBuilder: (_, i) => _buildEntry(_entries[i]),
             ),
-          ),
-        ],
+            Expanded(
+              child: M3ESegmentedList.builder(
+                itemCount: _entries.length,
+                padding: EdgeInsets.zero,
+                gap: 2,
+                outerRadius: 24,
+                listPadding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                physics: const AlwaysScrollableScrollPhysics(),
+                itemBuilder: (_, i) => _buildEntry(_entries[i]),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -174,8 +170,9 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
                 const SizedBox(height: 2),
                 Text(
                   'IP ${entry.ip.isEmpty ? '—' : entry.ip}',
-                  style: textTheme.bodySmall
-                      ?.copyWith(color: scheme.onSurfaceVariant),
+                  style: textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -191,8 +188,7 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
     final textTheme = Theme.of(context).textTheme;
     final success = entry.isSuccess;
     final color = success ? Colors.green.shade700 : scheme.error;
-    final background =
-        success ? Colors.green.shade50 : scheme.errorContainer;
+    final background = success ? Colors.green.shade50 : scheme.errorContainer;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(

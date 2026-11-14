@@ -49,9 +49,12 @@ extension AppResponsiveContext on BuildContext {
   ///
   /// `extendBody` 会把悬浮底栏的高度写进 body 的 MediaQuery 底部 padding，
   /// 这里直接用它再加上一点呼吸空间即可；重复叠加固定高度会让列表底部
-  /// 出现大片空白。使用侧边导航时底栏不存在，返回 0。
+  /// 出现大片空白。
+  ///
+  /// 不在这里读取窗口宽度：那会让所有调用它的页面在窗口缩放时每帧重建。
+  /// 使用侧边导航时底部 padding 本来就不含底栏高度，额外 12px 留白无害。
   double get floatingNavigationClearance =>
-      useSideNavigation ? 0 : MediaQuery.paddingOf(this).bottom + 12;
+      MediaQuery.paddingOf(this).bottom + 12;
 }
 
 /// 为滚动页面计算居中的内容边距。
@@ -63,14 +66,50 @@ EdgeInsets adaptivePadding(
   required EdgeInsets padding,
   required double maxWidth,
 }) {
-  final extra = ((context.screenWidth - maxWidth) / 2).clamp(
-    0.0,
-    double.infinity,
-  ).toDouble();
+  return centeredPadding(
+    context.screenWidth,
+    padding: padding,
+    maxWidth: maxWidth,
+  );
+}
+
+/// 根据实际可用宽度计算居中边距。
+///
+/// 放在 `LayoutBuilder` 里使用可以避免依赖 `MediaQuery`，窗口拖动时只会
+/// 重新布局，而不会让整棵页面组件树每帧重建。
+EdgeInsets centeredPadding(
+  double availableWidth, {
+  required EdgeInsets padding,
+  required double maxWidth,
+}) {
+  final extra = ((availableWidth - maxWidth) / 2)
+      .clamp(0.0, double.infinity)
+      .toDouble();
   return EdgeInsets.fromLTRB(
     padding.left + extra,
     padding.top,
     padding.right + extra,
     padding.bottom,
   );
+}
+
+/// 把滚动内容限制在可读宽度内并水平居中。
+///
+/// 只影响布局、不依赖 `MediaQuery`，因此窗口连续缩放时不会触发子组件重建。
+class ContentWidth extends StatelessWidget {
+  const ContentWidth({super.key, required this.child, required this.maxWidth});
+
+  final Widget child;
+  final double maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: child,
+      ),
+    );
+  }
 }

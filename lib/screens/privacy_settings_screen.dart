@@ -95,131 +95,130 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('隐私与遥测')),
-      body: ListView(
-        padding: adaptivePadding(
-          context,
-          maxWidth: 760,
+      body: ContentWidth(
+        maxWidth: 760,
+        child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-        ),
-        children: [
-          // 状态概览：一眼看清当前是否在上报数据。
-          _buildStatusCard(
-            context,
-            scheme,
-            buildEnabled: buildEnabled,
-            configured: configured,
-          ),
-          const SizedBox(height: 24),
-          const _SectionLabel('数据收集'),
-          M3ESegmentedList(
-            itemCount: 1,
-            outerRadius: 24,
-            padding: EdgeInsets.zero,
-            itemBuilder: (_, __) => SwitchListTile(
-              value: _enabled,
-              onChanged: !buildEnabled || _saving ? null : _toggle,
-              secondary: _circleIcon(
-                scheme,
-                _enabled ? Icons.analytics : Icons.analytics_outlined,
-                emphasized: _enabled,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 4,
-              ),
-              title: const Text('收集匿名使用数据'),
-              subtitle: Text(
-                !buildEnabled
-                    ? '当前为 debug 构建，遥测已自动关闭'
-                    : _enabled
-                    ? '仅用于改进应用，不包含任何个人信息'
-                    : '已退出，之后不会再上报任何数据',
-              ),
+          children: [
+            // 状态概览：一眼看清当前是否在上报数据。
+            _buildStatusCard(
+              context,
+              scheme,
+              buildEnabled: buildEnabled,
+              configured: configured,
             ),
-          ),
-          if (!buildEnabled)
-            const _InlineNote(
-              icon: Icons.info_outline,
-              message: '当前为 debug 构建，遥测已关闭；profile / release 构建不受影响。',
-            )
-          else if (!configured)
-            const _InlineNote(
-              icon: Icons.error_outline,
-              message: '提示：当前平台未成功初始化遥测 SDK，实际上不会上报任何数据。',
-              isError: true,
-            ),
-          const SizedBox(height: 24),
-          const _SectionLabel('数据说明'),
-          // 采集内容说明：与首次启动说明页共用同一份文案。
-          M3ESegmentedList(
-            itemCount: 1,
-            outerRadius: 24,
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
-            itemBuilder: (_, __) => const TelemetryNotice(),
-          ),
-          const SizedBox(height: 24),
-          const _SectionLabel('设备与数据'),
-          M3ESegmentedList(
-            itemCount: 3,
-            outerRadius: 24,
-            padding: EdgeInsets.zero,
-            onTap: (i) {
-              if (i == 2) _openUrl(kPosthogPrivacyUrl);
-            },
-            itemBuilder: (_, i) {
-              switch (i) {
-                case 0:
-                  return _infoTile(
-                    scheme,
-                    icon: Icons.fingerprint,
-                    title: '匿名设备 ID',
-                    subtitle: _distinctId.isEmpty ? '—' : _distinctId,
-                  );
-                case 1:
-                  return _infoTile(
-                    scheme,
-                    icon: Icons.developer_mode_outlined,
-                    title: '构建环境',
-                    subtitle: buildEnabled
-                        ? '${TelemetryService.envName}（事件属性 app_env）'
-                        : '${TelemetryService.envName}（遥测已关闭）',
-                  );
-                default:
-                  return _infoTile(
-                    scheme,
-                    icon: Icons.public,
-                    title: '了解 PostHog（数据处理方）',
-                    subtitle: kPosthogPrivacyUrl,
-                    trailing: Icon(
-                      Icons.open_in_new,
-                      size: 18,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  );
-              }
-            },
-          ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.lock_outline,
-                size: 14,
-                color: scheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  '你的账号、成绩与答卷永远不会被上报',
-                  style: textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+            const SizedBox(height: 24),
+            const _SectionLabel('数据收集'),
+            M3ESegmentedList(
+              itemCount: 1,
+              outerRadius: 24,
+              padding: EdgeInsets.zero,
+              itemBuilder: (_, __) => SwitchListTile(
+                value: _enabled,
+                onChanged: !buildEnabled || _saving ? null : _toggle,
+                secondary: _circleIcon(
+                  scheme,
+                  _enabled ? Icons.analytics : Icons.analytics_outlined,
+                  emphasized: _enabled,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
+                title: const Text('收集匿名使用数据'),
+                subtitle: Text(
+                  !buildEnabled
+                      ? '当前为 debug 构建，遥测已自动关闭'
+                      : _enabled
+                      ? '仅用于改进应用，不包含任何个人信息'
+                      : '已退出，之后不会再上报任何数据',
                 ),
               ),
-            ],
-          ),
-        ],
+            ),
+            if (!buildEnabled)
+              const _InlineNote(
+                icon: Icons.info_outline,
+                message: '当前为 debug 构建，遥测已关闭；profile / release 构建不受影响。',
+              )
+            else if (!configured)
+              const _InlineNote(
+                icon: Icons.error_outline,
+                message: '提示：当前平台未成功初始化遥测 SDK，实际上不会上报任何数据。',
+                isError: true,
+              ),
+            const SizedBox(height: 24),
+            const _SectionLabel('数据说明'),
+            // 采集内容说明：与首次启动说明页共用同一份文案。
+            M3ESegmentedList(
+              itemCount: 1,
+              outerRadius: 24,
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+              itemBuilder: (_, __) => const TelemetryNotice(),
+            ),
+            const SizedBox(height: 24),
+            const _SectionLabel('设备与数据'),
+            M3ESegmentedList(
+              itemCount: 3,
+              outerRadius: 24,
+              padding: EdgeInsets.zero,
+              onTap: (i) {
+                if (i == 2) _openUrl(kPosthogPrivacyUrl);
+              },
+              itemBuilder: (_, i) {
+                switch (i) {
+                  case 0:
+                    return _infoTile(
+                      scheme,
+                      icon: Icons.fingerprint,
+                      title: '匿名设备 ID',
+                      subtitle: _distinctId.isEmpty ? '—' : _distinctId,
+                    );
+                  case 1:
+                    return _infoTile(
+                      scheme,
+                      icon: Icons.developer_mode_outlined,
+                      title: '构建环境',
+                      subtitle: buildEnabled
+                          ? '${TelemetryService.envName}（事件属性 app_env）'
+                          : '${TelemetryService.envName}（遥测已关闭）',
+                    );
+                  default:
+                    return _infoTile(
+                      scheme,
+                      icon: Icons.public,
+                      title: '了解 PostHog（数据处理方）',
+                      subtitle: kPosthogPrivacyUrl,
+                      trailing: Icon(
+                        Icons.open_in_new,
+                        size: 18,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    );
+                }
+              },
+            ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.lock_outline,
+                  size: 14,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    '你的账号、成绩与答卷永远不会被上报',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

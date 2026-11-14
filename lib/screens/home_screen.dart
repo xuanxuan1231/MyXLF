@@ -143,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: schoolName.isEmpty ? null : schoolName,
             actions: [
               // 桌面端没有下拉刷新手势，提供显式刷新入口。
-              if (context.showRefreshAction)
+              if (context.isDesktopPlatform)
                 IconButton(
                   tooltip: '刷新考试列表',
                   onPressed: _loading ? null : _load,
@@ -186,40 +186,46 @@ class _HomeScreenState extends State<HomeScreen> {
       child: const Text('查询'),
     );
 
-    // 平板横屏 / 桌面：筛选条件与查询按钮排成一行，节省纵向空间。
-    final inline = context.screenWidth >= AppBreakpoints.medium;
-    final content = inline
-        ? Row(
-            children: [
-              Expanded(flex: 3, child: yearField),
-              const SizedBox(width: 8),
-              Expanded(flex: 3, child: semesterField),
-              const SizedBox(width: 12),
-              SizedBox(width: 128, child: queryButton),
-            ],
-          )
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 平板横屏 / 桌面：筛选条件与查询按钮排成一行，节省纵向空间。
+        final inline = constraints.maxWidth >= AppBreakpoints.medium;
+        // 这里不用 AnimatedSize：它会在窗口连续缩放时反复追赶宽度，
+        // 动画期间以 hardEdge 裁剪子控件，导致筛选条左右两端被切掉。
+        final content = inline
+            ? Row(
                 children: [
-                  Expanded(child: yearField),
+                  Expanded(flex: 3, child: yearField),
                   const SizedBox(width: 8),
-                  Expanded(child: semesterField),
+                  Expanded(flex: 3, child: semesterField),
+                  const SizedBox(width: 12),
+                  SizedBox(width: 128, child: queryButton),
                 ],
-              ),
-              const SizedBox(height: 8),
-              queryButton,
-            ],
-          );
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: yearField),
+                      const SizedBox(width: 8),
+                      Expanded(child: semesterField),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  queryButton,
+                ],
+              );
 
-    return Padding(
-      padding: adaptivePadding(
-        context,
-        maxWidth: 900,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      ),
-      child: content,
+        return Padding(
+          padding: centeredPadding(
+            constraints.maxWidth,
+            maxWidth: 900,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          ),
+          child: content,
+        );
+      },
     );
   }
 
@@ -274,9 +280,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const Text('暂无考试记录'),
                     const SizedBox(height: 4),
                     Text(
-                      context.showRefreshAction
-                          ? '下拉刷新或点击右上角刷新重试'
-                          : '下拉刷新重试',
+                      context.isDesktopPlatform ? '下拉刷新或点击右上角刷新重试' : '下拉刷新重试',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 12,
@@ -293,24 +297,23 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     return M3EPullToRefreshIndicator(
       onRefresh: _load,
-      child: M3ESegmentedList.builder(
-        itemCount: _exams.length,
-        padding: EdgeInsets.zero,
-        gap: 2,
-        outerRadius: 24,
-        listPadding: adaptivePadding(
-          context,
-          maxWidth: 900,
-          padding: EdgeInsets.fromLTRB(
+      child: ContentWidth(
+        maxWidth: 900,
+        child: M3ESegmentedList.builder(
+          itemCount: _exams.length,
+          padding: EdgeInsets.zero,
+          gap: 2,
+          outerRadius: 24,
+          listPadding: EdgeInsets.fromLTRB(
             16,
             8,
             16,
             24 + context.floatingNavigationClearance,
           ),
+          physics: const AlwaysScrollableScrollPhysics(),
+          onTap: (i) => _openExam(_exams[i]),
+          itemBuilder: (_, i) => _buildExamItem(_exams[i]),
         ),
-        physics: const AlwaysScrollableScrollPhysics(),
-        onTap: (i) => _openExam(_exams[i]),
-        itemBuilder: (_, i) => _buildExamItem(_exams[i]),
       ),
     );
   }

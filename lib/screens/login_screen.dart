@@ -147,7 +147,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       autofillHints: const [AutofillHints.username],
                       textInputAction: TextInputAction.next,
                       // 桌面端进入登录页后直接聚焦用户名，省去一次点击。
-                      autofocus: context.useSideNavigation,
+                      autofocus: context.isDesktopPlatform,
                       decoration: const InputDecoration(
                         labelText: '用户名',
                         hintText: '学生姓名或手机号',
