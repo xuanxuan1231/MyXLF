@@ -49,9 +49,12 @@ extension AppResponsiveContext on BuildContext {
   ///
   /// `extendBody` 会把悬浮底栏的高度写进 body 的 MediaQuery 底部 padding，
   /// 这里直接用它再加上一点呼吸空间即可；重复叠加固定高度会让列表底部
-  /// 出现大片空白。使用侧边导航时底栏不存在，返回 0。
+  /// 出现大片空白。
+  ///
+  /// 不在这里读取窗口宽度：那会让所有调用它的页面在窗口缩放时每帧重建。
+  /// 使用侧边导航时底部 padding 本来就不含底栏高度，额外 12px 留白无害。
   double get floatingNavigationClearance =>
-      useSideNavigation ? 0 : MediaQuery.paddingOf(this).bottom + 12;
+      MediaQuery.paddingOf(this).bottom + 12;
 }
 
 /// 为滚动页面计算居中的内容边距。
@@ -87,18 +90,6 @@ EdgeInsets centeredPadding(
     padding.top,
     padding.right + extra,
     padding.bottom,
-  );
-}
-
-/// `AnimatedSwitcher` 的布局：新旧内容都撑满可用区域，避免切换时尺寸跳动。
-Widget expandedSwitcherLayout(
-  Widget? currentChild,
-  List<Widget> previousChildren,
-) {
-  return Stack(
-    fit: StackFit.expand,
-    alignment: Alignment.topCenter,
-    children: [...previousChildren, if (currentChild != null) currentChild],
   );
 }
 

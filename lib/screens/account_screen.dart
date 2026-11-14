@@ -241,14 +241,7 @@ class AccountScreen extends StatelessWidget {
                     32 + context.floatingNavigationClearance,
                   ),
                 ),
-                sliver: SliverToBoxAdapter(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInCubic,
-                    child: KeyedSubtree(key: ValueKey(twoPane), child: content),
-                  ),
-                ),
+                sliver: SliverToBoxAdapter(child: content),
               ),
             ],
           ),

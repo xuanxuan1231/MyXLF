@@ -190,35 +190,32 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, constraints) {
         // 平板横屏 / 桌面：筛选条件与查询按钮排成一行，节省纵向空间。
         final inline = constraints.maxWidth >= AppBreakpoints.medium;
-        final content = AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: inline
-              ? Row(
-                  children: [
-                    Expanded(flex: 3, child: yearField),
-                    const SizedBox(width: 8),
-                    Expanded(flex: 3, child: semesterField),
-                    const SizedBox(width: 12),
-                    SizedBox(width: 128, child: queryButton),
-                  ],
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(child: yearField),
-                        const SizedBox(width: 8),
-                        Expanded(child: semesterField),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    queryButton,
-                  ],
-                ),
-        );
+        // 这里不用 AnimatedSize：它会在窗口连续缩放时反复追赶宽度，
+        // 动画期间以 hardEdge 裁剪子控件，导致筛选条左右两端被切掉。
+        final content = inline
+            ? Row(
+                children: [
+                  Expanded(flex: 3, child: yearField),
+                  const SizedBox(width: 8),
+                  Expanded(flex: 3, child: semesterField),
+                  const SizedBox(width: 12),
+                  SizedBox(width: 128, child: queryButton),
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: yearField),
+                      const SizedBox(width: 8),
+                      Expanded(child: semesterField),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  queryButton,
+                ],
+              );
 
         return Padding(
           padding: centeredPadding(

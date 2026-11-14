@@ -7,7 +7,9 @@ import '../theme/responsive.dart';
 ///
 /// - 窄屏 / 平板竖屏：左栏与右栏依次排成单列，整体一起滚动。
 /// - 宽屏：左栏固定，右栏独立滚动；左栏内容过长时也可以在左栏内单独滚动。
-/// - 单栏 / 双栏切换使用淡入淡出过渡，避免窗口缩放时布局突然跳变。
+///
+/// 单栏 / 双栏只按断点切换，不做交叉淡入淡出：两套布局同时存在会重复
+/// 布局滚动列表与图表，窗口较窄时反而更卡。
 class ReportSplitLayout extends StatelessWidget {
   const ReportSplitLayout({
     super.key,
@@ -37,18 +39,9 @@ class ReportSplitLayout extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final twoPane = constraints.maxWidth >= AppBreakpoints.twoPane;
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          layoutBuilder: expandedSwitcherLayout,
-          child: KeyedSubtree(
-            key: ValueKey(twoPane),
-            child: twoPane
-                ? _buildTwoPane(constraints.maxWidth)
-                : _buildSinglePane(constraints.maxWidth),
-          ),
-        );
+        return twoPane
+            ? _buildTwoPane(constraints.maxWidth)
+            : _buildSinglePane(constraints.maxWidth);
       },
     );
   }

@@ -138,13 +138,21 @@ class _MainShellState extends State<MainShell> {
 ///
 /// 宽度通过 [LayoutBuilder] 读取：拖动窗口时只重建这一层轻量布局，
 /// [body] 仍是同一个组件实例，页面内容不会跟着每帧重建。
-/// 导航栏的显示 / 隐藏使用尺寸动画过渡。
+///
+/// 导航切换只使用一条宽度动画：侧边栏收起后底部导航才会出现，展开时则
+/// 立即隐藏底部导航再展开侧边栏，因此任何时刻最多只有一种导航。
 class _AdaptiveShell extends StatelessWidget {
   const _AdaptiveShell({
     required this.body,
     required this.index,
     required this.onSelected,
   });
+
+  /// 侧边栏展开 / 收起的时长。
+  static const Duration _railDuration = Duration(milliseconds: 200);
+
+  /// 底部导航出现时的淡入时长。
+  static const Duration _bottomBarFadeIn = Duration(milliseconds: 140);
 
   final Widget body;
   final int index;
@@ -158,68 +166,119 @@ class _AdaptiveShell extends StatelessWidget {
         final extended = constraints.maxWidth >= AppBreakpoints.large;
         final railWidth = extended ? 216.0 : 72.0;
 
-        return Scaffold(
-          // 底栏悬浮在内容之上，列表可以滚动到导航栏后方，而不是被压缩出空白。
-          extendBody: true,
-          body: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 侧边导航用宽度动画展开 / 收起，避免断点切换时突然跳变。
-              // 始终保留 rail，只裁剪宽度，这样窗口缩放时不会丢失导航状态。
-              ExcludeSemantics(
-                excluding: !wide,
-                child: ExcludeFocus(
-                  excluding: !wide,
-                  child: IgnorePointer(
-                    ignoring: !wide,
-                    child: TickerMode(
-                      enabled: wide,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
-                        curve: Curves.easeOutCubic,
-                        width: wide ? railWidth : 0,
-                        child: ClipRect(
-                          child: OverflowBox(
-                            alignment: Alignment.centerLeft,
-                            minWidth: railWidth,
-                            maxWidth: railWidth,
-                            child: SafeArea(
-                              right: false,
-                              bottom: false,
-                              child: _SideNavigationRail(
-                                index: index,
-                                extended: extended,
-                                onSelected: onSelected,
+        // 侧边栏的宽度同时决定内容区宽度。用 [TweenAnimationBuilder] 而不是
+        // 把动画控件包在 `TickerMode` 里：后者会在断点切换时停掉自己的
+        // ticker，导致侧栏宽度停在中间、与底部导航同时可见。
+        return TweenAnimationBuilder<double>(
+          tween: Tween<double>(end: wide ? railWidth : 0),
+          duration: _railDuration,
+          curve: Curves.easeOutCubic,
+          child: body,
+          builder: (context, animatedWidth, child) {
+            final railVisible = animatedWidth > 0.5;
+            // 侧栏完全收起后才显示底栏：两种导航不会同时出现。
+            final showBottomBar = !wide && animatedWidth <= 0.5;
+            final railBackground = Theme.of(
+              context,
+            ).colorScheme.surfaceContainerLow;
+
+            return Scaffold(
+              // 底栏悬浮在内容之上，列表可以滚动到导航栏后方，而不是被压缩出空白。
+              extendBody: true,
+              body: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (railVisible)
+                    ExcludeSemantics(
+                      excluding: !wide,
+                      child: ExcludeFocus(
+                        excluding: !wide,
+                        child: IgnorePointer(
+                          ignoring: !wide,
+                          child: SizedBox(
+                            width: animatedWidth,
+                            // 宽度动画期间补上侧栏底色，避免内容宽度
+                            // 先切到目标值时在侧栏与正文之间露出空隙。
+                            child: ColoredBox(
+                              color: railBackground,
+                              child: ClipRect(
+                                child: OverflowBox(
+                                  alignment: Alignment.centerLeft,
+                                  minWidth: railWidth,
+                                  maxWidth: railWidth,
+                                  // 宽度变窄时同步淡出侧栏内容，避免图标只在
+                                  // 裁剪边缘被硬生生切掉。
+                                  child: Opacity(
+                                    opacity: (animatedWidth / railWidth).clamp(
+                                      0.0,
+                                      1.0,
+                                    ),
+                                    child: SafeArea(
+                                      right: false,
+                                      bottom: false,
+                                      // 侧栏是当前导航时才运行其内部动画；
+                                      // 收起过程中只做裁剪，避免和宽度动画抢帧。
+                                      child: TickerMode(
+                                        enabled: wide,
+                                        child: _SideNavigationRail(
+                                          index: index,
+                                          extended: extended,
+                                          onSelected: onSelected,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
                     ),
+                  Expanded(
+                    key: const ValueKey('shell-body'),
+                    child: SafeArea(
+                      top: false,
+                      left: false,
+                      right: false,
+                      child: child!,
+                    ),
                   ),
-                ),
+                ],
               ),
-              Expanded(
-                key: const ValueKey('shell-body'),
-                child: SafeArea(
-                  top: false,
-                  left: false,
-                  right: false,
-                  child: body,
-                ),
-              ),
-            ],
-          ),
-          // 底部导航的高度同样做动画，桌面切换时内容区平滑扩展。
-          bottomNavigationBar: AnimatedSize(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: wide
-                ? const SizedBox(width: double.infinity)
-                : _FloatingNavigationBar(index: index, onSelected: onSelected),
-          ),
+              bottomNavigationBar: showBottomBar
+                  ? _BottomBarFadeIn(
+                      duration: _bottomBarFadeIn,
+                      child: _FloatingNavigationBar(
+                        index: index,
+                        onSelected: onSelected,
+                      ),
+                    )
+                  : null,
+            );
+          },
         );
+      },
+    );
+  }
+}
+
+/// 底部导航首次出现时淡入；移除时直接消失，避免和侧边栏同时显示。
+class _BottomBarFadeIn extends StatelessWidget {
+  const _BottomBarFadeIn({required this.child, required this.duration});
+
+  final Widget child;
+  final Duration duration;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: duration,
+      curve: Curves.easeOut,
+      child: child,
+      builder: (context, opacity, child) {
+        return Opacity(opacity: opacity, child: child);
       },
     );
   }
