@@ -117,7 +117,10 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _sectionTitle('卷面作答'),
-          QuestionAnswersSection(questions: report.questions),
+          QuestionAnswersSection(
+            questions: report.questions,
+            answerSheetForm: report.answerSheet,
+          ),
         ],
       ),
       if (_hasGainLoss(report))
@@ -228,16 +231,12 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
 
   // ---- 答卷 ----
 
-  void _openAnswerSheet(SubjectReport report, bool typical) {
+  void _openAnswerSheet(SubjectReport report) {
     final form = report.answerSheet;
     if (form == null) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => AnswerSheetScreen(
-          title: typical ? '典型答卷' : '我的答卷',
-          form: form,
-          typical: typical,
-        ),
+        builder: (_) => AnswerSheetScreen(title: '我的答卷', form: form),
         settings: const RouteSettings(name: 'Answer Sheet'),
       ),
     );
@@ -245,19 +244,17 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
 
   Widget _buildAnswerSheetSection(SubjectReport report) {
     return M3ESegmentedList(
-      itemCount: 2,
+      itemCount: 1,
       gap: 2,
       outerRadius: 24,
-      onTap: (i) => _openAnswerSheet(report, i == 1),
-      itemBuilder: (_, i) => Padding(
+      onTap: (_) => _openAnswerSheet(report),
+      itemBuilder: (_, __) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            Icon(
-              i == 0 ? Icons.assignment_outlined : Icons.auto_stories_outlined,
-            ),
+            const Icon(Icons.assignment_outlined),
             const SizedBox(width: 12),
-            Expanded(child: Text(i == 0 ? '我的答卷' : '典型答卷')),
+            const Expanded(child: Text('我的答卷')),
             Text(
               '查看',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
