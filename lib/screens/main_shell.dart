@@ -241,6 +241,11 @@ class _AdaptiveShell extends StatelessWidget {
                       top: false,
                       left: false,
                       right: false,
+                      // 显示悬浮底栏时不要把底栏高度消费成 body 的 Padding：
+                      // 否则内容会被压到底栏上方，底栏也就失去了「悬浮」效果。
+                      // 底栏高度仍保留在 MediaQuery 底部 padding 中，页面里的
+                      // `floatingNavigationClearance` 会把它算进滚动留白。
+                      bottom: !showBottomBar,
                       child: child!,
                     ),
                   ),

@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:xlf/models/models.dart';
 import 'package:xlf/screens/main_shell.dart';
 import 'package:xlf/services/xlf_client.dart';
+import 'package:xlf/theme/responsive.dart';
 
 /// 两种导航在窗口缩放过程中不能同时出现。
 ///
@@ -54,6 +55,21 @@ void main() {
     }
     expect(find.byType(NavigationRail), findsNothing);
     expect(find.byType(M3EHorizontalFloatingToolbar), findsOneWidget);
+
+    // 底栏必须是悬浮的：页面内容要一直延伸到窗口底部，再由列表的
+    // `floatingNavigationClearance` 预留足够滚动的底部留白。如果外壳把
+    // 底栏高度消费成 body 的 Padding，页面就会浮不起来、最后一行也会
+    // 在滚动到底时被底栏挡住。
+    final page = find.byType(NestedScrollView).first;
+    final pageContext = tester.element(page);
+    final toolbarTop = tester
+        .getRect(find.byType(M3EHorizontalFloatingToolbar))
+        .top;
+    expect(tester.getRect(page).bottom, 800);
+    expect(
+      pageContext.floatingNavigationClearance,
+      greaterThanOrEqualTo(800 - toolbarTop),
+    );
 
     // 窄 -> 宽：底栏先消失，再展开侧边栏。
     tester.view.physicalSize = const Size(1600, 1000);
