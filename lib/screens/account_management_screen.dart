@@ -238,14 +238,17 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       ),
       body: _loading
           ? const Center(child: M3ECircularProgressIndicator())
-          : ContentWidth(
-              maxWidth: 760,
-              child: M3ESegmentedList.builder(
+          : LayoutBuilder(
+              builder: (context, constraints) => M3ESegmentedList.builder(
                 itemCount: _accounts.length,
                 padding: EdgeInsets.zero,
                 gap: 2,
                 outerRadius: 24,
-                listPadding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                listPadding: centeredPadding(
+                  constraints.maxWidth,
+                  maxWidth: AppLayout.contentMaxWidth,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                ),
                 onTap: (i) => _switchTo(_accounts[i]),
                 itemBuilder: (_, i) => _buildItem(_accounts[i]),
               ),

@@ -47,10 +47,13 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('可选访问信息收集')),
       body: SafeArea(
-        child: ContentWidth(
-          maxWidth: 760,
-          child: ListView(
-            padding: const EdgeInsets.all(20),
+        child: LayoutBuilder(
+          builder: (context, constraints) => ListView(
+            padding: centeredPadding(
+              constraints.maxWidth,
+              maxWidth: AppLayout.contentMaxWidth,
+              padding: const EdgeInsets.all(20),
+            ),
             children: [
               Text(
                 '为了持续改进 MyXLF 并及时发现崩溃与故障，我们希望收集匿名的使用信息。'

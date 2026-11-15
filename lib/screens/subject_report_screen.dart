@@ -2,13 +2,15 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/offline_cache.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
-import '../widgets/app_top_bar.dart';
 import '../widgets/chart_image.dart';
+import '../widgets/offline_notice.dart';
 import '../widgets/question_answers_section.dart';
+import '../widgets/report_page_scaffold.dart';
 import '../widgets/report_split_layout.dart';
 import '../widgets/score_rate_chart.dart';
 import 'answer_sheet_screen.dart';
@@ -27,6 +29,8 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
   SubjectReport? _report;
   bool _loading = true;
   String? _error;
+  bool _fromCache = false;
+  DateTime? _cachedAt;
 
   @override
   void initState() {
@@ -39,15 +43,40 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
       _loading = true;
       _error = null;
     });
+    final cacheKey = OfflineCache.instance.subjectReportKey(
+      username: XlfClient.instance.currentUsername,
+      testId: widget.link.testId,
+      paperId: widget.link.paperId,
+    );
     try {
       final html = await XlfClient.instance.fetchSubjectReportHtml(widget.link);
+      await OfflineCache.instance.write(cacheKey, html);
       final report = Parsers.parseSubjectReport(html);
       if (!mounted) return;
       setState(() {
         _report = report;
         _loading = false;
+        _fromCache = false;
+        _cachedAt = null;
       });
     } catch (e) {
+      final cached = await OfflineCache.instance.read(cacheKey);
+      if (cached != null) {
+        try {
+          final report = Parsers.parseSubjectReport(cached.html);
+          if (!mounted) return;
+          setState(() {
+            _report = report;
+            _loading = false;
+            _error = null;
+            _fromCache = true;
+            _cachedAt = cached.savedAt;
+          });
+          return;
+        } catch (_) {
+          // 缓存损坏时按真实网络错误处理。
+        }
+      }
       if (!mounted) return;
       setState(() {
         _error = e.toString();
@@ -61,25 +90,19 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
     final subjectName = widget.link.subjectName;
     final hasSubject = subjectName.isNotEmpty;
 
-    return Scaffold(
-      body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) => [
-          AppTopBar(
-            title: hasSubject ? subjectName : '学科分析',
-            subtitle: hasSubject ? '学科分析' : null,
-            actions: [
-              // 桌面端没有下拉刷新手势，提供显式刷新入口。
-              if (context.isDesktopPlatform)
-                IconButton(
-                  tooltip: '刷新学科分析',
-                  onPressed: _loading ? null : _load,
-                  icon: const Icon(Icons.refresh),
-                ),
-            ],
+    return ReportPageScaffold(
+      title: hasSubject ? subjectName : '学科分析',
+      subtitle: hasSubject ? '学科分析' : null,
+      actions: [
+        // 桌面端没有下拉刷新手势，提供显式刷新入口。
+        if (context.isDesktopPlatform)
+          IconButton(
+            tooltip: '刷新学科分析',
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh),
           ),
-        ],
-        body: _buildBody(),
-      ),
+      ],
+      body: _buildBody(),
     );
   }
 
@@ -105,6 +128,8 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
     }
     final report = _report!;
     final leftSections = <Widget>[
+      if (_fromCache && _cachedAt != null)
+        OfflineNotice(savedAt: _cachedAt!, onRetry: _load),
       _buildHero(report),
       if (report.answerSheet != null)
         Column(

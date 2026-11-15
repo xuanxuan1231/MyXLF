@@ -8,7 +8,7 @@ const Color kSeedColor = Color(0xFF2F6FED);
 /// 桌面端滚动行为：允许用鼠标拖动滚动内容。
 ///
 /// Flutter 默认只在触摸屏上启用拖动，桌面端鼠标用户通常用滚轮或滚动条；
-/// 鼠标拖动让列表的下拉刷新、横向图表等交互在桌面上同样可用。
+/// 鼠标拖动让列表、横向图表等交互在桌面上同样可用。
 class AppScrollBehavior extends MaterialScrollBehavior {
   const AppScrollBehavior();
 

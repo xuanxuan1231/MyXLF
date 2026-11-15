@@ -95,10 +95,13 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('隐私与遥测')),
-      body: ContentWidth(
-        maxWidth: 760,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+      body: LayoutBuilder(
+        builder: (context, constraints) => ListView(
+          padding: centeredPadding(
+            constraints.maxWidth,
+            maxWidth: AppLayout.contentMaxWidth,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+          ),
           children: [
             // 状态概览：一眼看清当前是否在上报数据。
             _buildStatusCard(

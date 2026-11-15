@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_pull_to_refresh.dart';
 
 /// 登录历史页：展示网页版账号的最近登录日志。
 class LoginHistoryScreen extends StatefulWidget {
@@ -87,7 +88,7 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
     }
     if (_entries.isEmpty) {
       final scheme = Theme.of(context).colorScheme;
-      return M3EPullToRefreshIndicator(
+      return AppPullToRefresh(
         onRefresh: _load,
         child: LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
@@ -107,7 +108,7 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
                     const Text('暂无登录记录'),
                     const SizedBox(height: 4),
                     Text(
-                      context.isDesktopPlatform ? '下拉刷新或点击右上角刷新重试' : '下拉刷新重试',
+                      context.isDesktopPlatform ? '点击右上角刷新重试' : '下拉刷新重试',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 12,
@@ -122,15 +123,18 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
         ),
       );
     }
-    return M3EPullToRefreshIndicator(
-      onRefresh: _load,
-      child: ContentWidth(
-        maxWidth: 760,
+    return LayoutBuilder(
+      builder: (context, constraints) => AppPullToRefresh(
+        onRefresh: _load,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+              padding: centeredPadding(
+                constraints.maxWidth,
+                maxWidth: AppLayout.contentMaxWidth,
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+              ),
               child: Text(
                 '最近 30 天共 ${_entries.length} 次登录',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -144,7 +148,11 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
                 padding: EdgeInsets.zero,
                 gap: 2,
                 outerRadius: 24,
-                listPadding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                listPadding: centeredPadding(
+                  constraints.maxWidth,
+                  maxWidth: AppLayout.contentMaxWidth,
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                ),
                 physics: const AlwaysScrollableScrollPhysics(),
                 itemBuilder: (_, i) => _buildEntry(_entries[i]),
               ),

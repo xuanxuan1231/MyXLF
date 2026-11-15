@@ -13,6 +13,18 @@ abstract final class AppBreakpoints {
   static const double twoPane = 1000;
 }
 
+/// 页面正文的统一尺寸。
+abstract final class AppLayout {
+  /// 首页、趋势、设置、导出等单栏页面的最大内容宽度。
+  ///
+  /// 桌面端各页面统一使用这一宽度，避免从首页切换到设置或导出页时
+  /// 正文区域突然变窄 / 变宽。
+  static const double contentMaxWidth = 900;
+
+  /// 报告 / 账户等双栏页面在宽屏下的最大宽度。
+  static const double twoPaneMaxWidth = 1240;
+}
+
 extension AppResponsiveContext on BuildContext {
   double get screenWidth => MediaQuery.sizeOf(this).width;
 

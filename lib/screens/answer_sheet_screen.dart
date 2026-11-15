@@ -8,6 +8,7 @@ import '../services/image_actions.dart';
 import '../services/image_store.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_pull_to_refresh.dart';
 import '../widgets/xlf_image.dart';
 import 'image_viewer_screen.dart';
 
@@ -178,13 +179,16 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
     if (_urls.isEmpty) {
       return const Center(child: Text('暂无答卷图片'));
     }
-    return M3EPullToRefreshIndicator(
-      onRefresh: _load,
-      child: ContentWidth(
-        maxWidth: 900,
+    return LayoutBuilder(
+      builder: (context, constraints) => AppPullToRefresh(
+        onRefresh: _load,
         child: ListView.builder(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(12),
+          padding: centeredPadding(
+            constraints.maxWidth,
+            maxWidth: AppLayout.contentMaxWidth,
+            padding: const EdgeInsets.all(12),
+          ),
           itemCount: _urls.length,
           itemBuilder: (_, i) => _buildImage(_urls[i], i),
         ),

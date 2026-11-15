@@ -119,10 +119,13 @@ class _AboutScreenState extends State<AboutScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('关于')),
-      body: ContentWidth(
-        maxWidth: 760,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+      body: LayoutBuilder(
+        builder: (context, constraints) => ListView(
+          padding: centeredPadding(
+            constraints.maxWidth,
+            maxWidth: AppLayout.contentMaxWidth,
+            padding: const EdgeInsets.all(16),
+          ),
           children: [
             // 应用信息：图标、名称、版本与简介。
             M3ESegmentedList(

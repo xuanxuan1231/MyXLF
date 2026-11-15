@@ -12,8 +12,9 @@ import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import 'account_screen.dart';
 import 'home_screen.dart';
+import 'trend_screen.dart';
 
-/// 登录成功后：保存账号信息并进入主界面（底部导航：首页 / 账户）。
+/// 登录成功后：保存账号信息并进入主界面（底部导航：首页 / 趋势 / 账户）。
 Future<void> enterShell(
   BuildContext context,
   Account account,
@@ -56,7 +57,7 @@ Future<void> enterShell(
   );
 }
 
-/// 主界面：底部导航栏（首页 + 账户）。
+/// 主界面：底部导航栏（首页 + 趋势 + 账户）。
 class MainShell extends StatefulWidget {
   const MainShell({
     super.key,
@@ -72,6 +73,9 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
+  /// 与导航顺序一致；Tab 切换时用于页面浏览上报。
+  static const List<String> _tabScreens = ['Home', 'Trend', 'Account'];
+
   int _index = 0;
   late Account _account = widget.account;
   late LoginResult _loginResult = widget.loginResult;
@@ -105,7 +109,9 @@ class _MainShellState extends State<MainShell> {
     setState(() => _index = index);
     // Tab 切换也计入页面浏览（$screen 事件）。
     unawaited(
-      TelemetryService.instance.captureScreen(index == 0 ? 'Home' : 'Account'),
+      TelemetryService.instance.captureScreen(
+        _tabScreens[index.clamp(0, _tabScreens.length - 1)],
+      ),
     );
   }
 
@@ -121,6 +127,12 @@ class _MainShellState extends State<MainShell> {
             key: ValueKey('home_${_account.username}'),
             account: _account,
             loginResult: _loginResult,
+          ),
+          // 趋势页只在首次选中时请求数据，避免启动时额外加载十几份报告。
+          TrendScreen(
+            key: ValueKey('trend_${_account.username}'),
+            account: _account,
+            active: _index == 1,
           ),
           AccountScreen(
             account: _account,
@@ -351,6 +363,11 @@ class _SideNavigationRail extends StatelessWidget {
           label: Text('首页'),
         ),
         NavigationRailDestination(
+          icon: Icon(Icons.show_chart_outlined),
+          selectedIcon: Icon(Icons.show_chart_rounded),
+          label: Text('趋势'),
+        ),
+        NavigationRailDestination(
           icon: Icon(Icons.person_outline_rounded),
           selectedIcon: Icon(Icons.person_rounded),
           label: Text('账户'),
@@ -391,11 +408,19 @@ class _FloatingNavigationBar extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               _FloatingNavDestination(
+                icon: Icons.show_chart_outlined,
+                selectedIcon: Icons.show_chart_rounded,
+                label: '趋势',
+                selected: index == 1,
+                onTap: () => onSelected(1),
+              ),
+              const SizedBox(width: 4),
+              _FloatingNavDestination(
                 icon: Icons.person_outline_rounded,
                 selectedIcon: Icons.person_rounded,
                 label: '账户',
-                selected: index == 1,
-                onTap: () => onSelected(1),
+                selected: index == 2,
+                onTap: () => onSelected(2),
               ),
             ],
           ),
