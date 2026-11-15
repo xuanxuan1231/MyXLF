@@ -6,6 +6,7 @@ import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_pull_to_refresh.dart';
+import '../widgets/app_top_bar.dart';
 
 /// 登录历史页：展示网页版账号的最近登录日志。
 class LoginHistoryScreen extends StatefulWidget {
@@ -51,18 +52,22 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('登录历史'),
-        actions: [
-          if (context.isDesktopPlatform)
-            IconButton(
-              tooltip: '刷新登录历史',
-              onPressed: _loading ? null : _load,
-              icon: const Icon(Icons.refresh),
-            ),
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          AppTopBar(
+            title: '登录历史',
+            actions: [
+              if (context.isDesktopPlatform)
+                IconButton(
+                  tooltip: '刷新登录历史',
+                  onPressed: _loading ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                ),
+            ],
+          ),
         ],
+        body: _buildBody(),
       ),
-      body: _buildBody(),
     );
   }
 

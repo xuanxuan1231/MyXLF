@@ -3,6 +3,7 @@ import 'package:m3e_core/m3e_core.dart';
 
 import '../services/telemetry.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_top_bar.dart';
 import '../widgets/telemetry_notice.dart';
 import 'bootstrap_screen.dart';
 
@@ -45,54 +46,58 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('可选访问信息收集')),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) => ListView(
-            padding: centeredPadding(
-              constraints.maxWidth,
-              maxWidth: AppLayout.contentMaxWidth,
-              padding: const EdgeInsets.all(20),
-            ),
-            children: [
-              Text(
-                '为了持续改进 MyXLF 并及时发现崩溃与故障，我们希望收集匿名的使用信息。'
-                '你可以随时在「账户 → 隐私与遥测」中开启或关闭。',
-                style: textTheme.bodyMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                  height: 1.5,
-                ),
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          const AppTopBar(title: '可选访问信息收集'),
+        ],
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) => ListView(
+              padding: centeredPadding(
+                constraints.maxWidth,
+                maxWidth: AppLayout.contentMaxWidth,
+                padding: const EdgeInsets.all(20),
               ),
-              const SizedBox(height: 20),
-              const TelemetryNotice(),
-              const SizedBox(height: 8),
-              Divider(height: 24, color: scheme.outlineVariant),
-              CheckboxListTile(
-                value: _allow,
-                onChanged: (v) => setState(() => _allow = v ?? true),
-                controlAffinity: ListTileControlAffinity.leading,
-                contentPadding: EdgeInsets.zero,
-                title: const Text('允许收集匿名使用数据'),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: M3EFilledButton(
-                  onPressed: _saving ? null : _confirm,
-                  size: M3EButtonSize.md,
-                  child: Text(_saving ? '正在保存…' : '确认'),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Center(
-                child: Text(
-                  '未勾选也可以正常使用全部功能',
-                  style: textTheme.bodySmall?.copyWith(
+              children: [
+                Text(
+                  '为了持续改进 MyXLF 并及时发现崩溃与故障，我们希望收集匿名的使用信息。'
+                  '你可以随时在「账户 → 隐私与遥测」中开启或关闭。',
+                  style: textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurfaceVariant,
+                    height: 1.5,
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 20),
+                const TelemetryNotice(),
+                const SizedBox(height: 8),
+                Divider(height: 24, color: scheme.outlineVariant),
+                CheckboxListTile(
+                  value: _allow,
+                  onChanged: (v) => setState(() => _allow = v ?? true),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('允许收集匿名使用数据'),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: M3EFilledButton(
+                    onPressed: _saving ? null : _confirm,
+                    size: M3EButtonSize.md,
+                    child: Text(_saving ? '正在保存…' : '确认'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Center(
+                  child: Text(
+                    '未勾选也可以正常使用全部功能',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -9,6 +9,7 @@ import '../services/image_store.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_pull_to_refresh.dart';
+import '../widgets/app_top_bar.dart';
 import '../widgets/xlf_image.dart';
 import 'image_viewer_screen.dart';
 
@@ -141,18 +142,22 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-        actions: [
-          if (context.isDesktopPlatform)
-            IconButton(
-              tooltip: '刷新答卷图片',
-              onPressed: _loading ? null : _load,
-              icon: const Icon(Icons.refresh),
-            ),
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          AppTopBar(
+            title: widget.title,
+            actions: [
+              if (context.isDesktopPlatform)
+                IconButton(
+                  tooltip: '刷新答卷图片',
+                  onPressed: _loading ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                ),
+            ],
+          ),
         ],
+        body: _buildBody(),
       ),
-      body: _buildBody(),
     );
   }
 
