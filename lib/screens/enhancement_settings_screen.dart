@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../services/enhancement_settings.dart';
+import '../services/telemetry.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_top_bar.dart';
 
@@ -83,6 +86,15 @@ class EnhancementSettingsScreen extends StatelessWidget {
                     return SwitchListTile(
                       value: enabled,
                       onChanged: (value) {
+                        unawaited(
+                          TelemetryService.instance.capture(
+                            TelemetryEvents.enhancementToggled,
+                            properties: {
+                              'feature': feature.id,
+                              'enabled': value,
+                            },
+                          ),
+                        );
                         settings.setEnabled(feature, enabled: value);
                       },
                       contentPadding: const EdgeInsets.symmetric(

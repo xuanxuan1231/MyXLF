@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart' show TextInput;
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_top_bar.dart';
@@ -60,7 +63,24 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _submit() async {
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
+    final stopwatch = Stopwatch()..start();
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.loginStarted,
+        properties: const {'method': 'manual'},
+      ),
+    );
     if (username.isEmpty || password.isEmpty) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.loginFailed,
+          properties: {
+            'method': 'manual',
+            'reason': 'missing_input',
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('请输入用户名和密码')));
@@ -79,14 +99,49 @@ class _LoginScreenState extends State<LoginScreen> {
         classId: result.classId,
         lastLoginAt: DateTime.now().millisecondsSinceEpoch,
       );
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.loginSucceeded,
+          properties: {
+            'method': 'manual',
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
+      unawaited(
+        TelemetryService.instance.addStep(
+          'Manual login succeeded',
+          properties: {'method': 'manual'},
+        ),
+      );
       if (!mounted) return;
       // 通知系统本次输入已完成，允许密码管理器（如 HyperOS 密码管家）弹出“保存密码”提示。
       TextInput.finishAutofillContext();
       await enterShell(context, account, result);
     } on XlfAccountLockedException catch (e) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.loginFailed,
+          properties: {
+            'method': 'manual',
+            'reason': TelemetryService.errorKind(e),
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       await showAccountLockedDialog(e.message);
     } catch (e) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.loginFailed,
+          properties: {
+            'method': 'manual',
+            'reason': TelemetryService.errorKind(e),
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

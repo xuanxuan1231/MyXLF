@@ -11,6 +11,94 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
 import 'locale_name.dart';
 import 'os_version.dart';
+import 'xlf_exceptions.dart';
+
+/// 应用内统一的事件名。
+///
+/// 事件名保持稳定，PostHog 的 Insight / Funnel / 看板都按这些字符串查询。
+/// 事件属性只放布尔值、数量、耗时、枚举与稳定 ID，绝不放账号、姓名、
+/// 学校 / 班级、成绩、题目或答卷内容。
+abstract final class TelemetryEvents {
+  // 生命周期与同意
+  // `Application Opened` / `Application Backgrounded` / `Application Installed`
+  // / `Application Updated` 由 PostHog SDK 自动采集，不在此重复定义。
+  static const String applicationSessionEnded = 'Application Session Ended';
+  static const String telemetryOptedIn = 'Telemetry Opted In';
+  static const String telemetryOptedOut = 'Telemetry Opted Out';
+  static const String consentCompleted = 'Consent Screen Completed';
+
+  // 登录与账号
+  static const String loginStarted = 'Login Started';
+  static const String loginSucceeded = 'Login Succeeded';
+  static const String loginFailed = 'Login Failed';
+  static const String autoLoginSucceeded = 'Auto Login Succeeded';
+  static const String autoLoginFailed = 'Auto Login Failed';
+  static const String logout = 'Logout';
+  static const String accountSaved = 'Account Saved';
+  static const String accountListLoaded = 'Account List Loaded';
+  static const String accountSwitched = 'Account Switched';
+  static const String accountSwitchFailed = 'Account Switch Failed';
+  static const String accountRemoved = 'Account Removed';
+  static const String defaultAccountChanged = 'Default Account Changed';
+
+  // 首页与考试
+  static const String examListLoaded = 'Exam List Loaded';
+  static const String examListFailed = 'Exam List Load Failed';
+  static const String examOpened = 'Exam Opened';
+  static const String examFilterChanged = 'Exam Filter Changed';
+
+  // 成绩报告
+  static const String reportLoaded = 'Report Loaded';
+  static const String reportLoadFailed = 'Report Load Failed';
+  static const String reportNotesOpened = 'Report Notes Opened';
+  static const String subjectReportOpened = 'Subject Report Opened';
+  static const String reportExportOpened = 'Report Export Opened';
+
+  // 趋势
+  static const String trendLoaded = 'Trend Loaded';
+  static const String trendLoadFailed = 'Trend Load Failed';
+  static const String trendMetricChanged = 'Trend Metric Changed';
+  static const String trendReportOpened = 'Trend Report Opened';
+
+  // 答卷与图片
+  static const String answerSheetOpened = 'Answer Sheet Opened';
+  static const String answerSheetLoaded = 'Answer Sheet Loaded';
+  static const String answerSheetLoadFailed = 'Answer Sheet Load Failed';
+  static const String answerSheetImageOpened = 'Answer Sheet Image Opened';
+  static const String answerSheetShared = 'Answer Sheet Shared';
+  static const String answerSheetSaved = 'Answer Sheet Saved';
+  static const String imageShared = 'Image Shared';
+  static const String imageSaved = 'Image Saved';
+  static const String imagePageChanged = 'Image Page Changed';
+
+  // 导出
+  static const String exportShared = 'Report Export Shared';
+  static const String exportSaved = 'Report Export Saved';
+  static const String exportFailed = 'Report Export Failed';
+  static const String exportPrivacyChanged = 'Export Privacy Mode Changed';
+
+  // 增强功能
+  static const String enhancementToggled = 'Enhancement Toggled';
+  static const String enhancementNoticeAction = 'Enhancement Notice Action';
+
+  // 登录历史、逐题与典型答卷
+  static const String loginHistoryLoaded = 'Login History Loaded';
+  static const String loginHistoryFailed = 'Login History Load Failed';
+  static const String questionFilterChanged = 'Question Filter Changed';
+  static const String questionDetailsOpened = 'Question Details Opened';
+  static const String typicalAnswerLoaded = 'Typical Answer Loaded';
+  static const String typicalAnswerFailed = 'Typical Answer Load Failed';
+  static const String typicalAnswerOpened = 'Typical Answer Opened';
+
+  // 更新与外部链接
+  static const String updateCheckStarted = 'Update Check Started';
+  static const String updateCheckCompleted = 'Update Check Completed';
+  static const String updateCheckFailed = 'Update Check Failed';
+  static const String updateDialogShown = 'Update Dialog Shown';
+  static const String updateDialogAction = 'Update Dialog Action';
+  static const String updateAutoCheckChanged = 'Update Auto Check Changed';
+  static const String externalLinkOpened = 'External Link Opened';
+}
 
 /// PostHog 遥测服务：统一管理 SDK 初始化、采集开关与事件上报。
 ///
@@ -21,13 +109,13 @@ import 'os_version.dart';
 ///   「账户 → 隐私与遥测」中退出或重新加入。
 /// - **环境分离**：debug 构建不初始化 SDK，profile / release 以事件属性
 ///   `app_env` 标注，可在 PostHog 中按环境筛选或拆分看板。
-/// - **只收匿名数据**：不上传账号、姓名、成绩等个人数据，也不附带任何
-///   用户属性。设备 ID 在 Android 上取 ANDROID_ID、iOS 上取 IDFV，
-///   其他平台使用 PostHog 生成的随机 UUID，仅用于安装 / 活跃去重。
-/// - **属性先就绪再上报**：设备 ID 与公共属性在 SDK 初始化前解析完成，
-///   并在任何事件发出前注册；生命周期事件由本服务自行采集（SDK 自带的
-///   自动生命周期采集已关闭），因此不会出现缺少 `app_env` 等属性的首个
-///   事件，也不会先以随机 ID 上报再切换设备 ID。
+/// - **只收匿名数据**：不上传账号、姓名、成绩等个人数据。仅附带版本、
+///   平台、系统版本与语言等运行环境属性；设备 ID 在 Android 上取
+///   ANDROID_ID、iOS 上取 IDFV，其他平台使用 PostHog 生成的随机 UUID，
+///   仅用于安装 / 活跃去重。
+/// - **属性先就绪再上报**：设备 ID 在 SDK 初始化前解析完成并以 bootstrap
+///   预置，公共属性在 setup 后立即注册；自动生命周期事件由 SDK 原生采集，
+///   其余 Dart 事件都会带完整公共属性，也不会先以随机 ID 上报再切换设备 ID。
 /// - **绝不影响应用**：所有上报调用都吞掉异常，遥测故障不干扰业务逻辑。
 class TelemetryService {
   TelemetryService._();
@@ -36,11 +124,6 @@ class TelemetryService {
 
   /// 用户是否已对「可选访问信息收集」做出选择（SharedPreferences 键）。
   static const String _kConsentKey = 'telemetry_consent';
-
-  /// 上次上报时使用的应用版本（`version+build`，SharedPreferences 键）。
-  ///
-  /// 用于自行判断本次启动是首次安装还是版本升级。
-  static const String _kLastVersionKey = 'telemetry_last_version';
 
   /// 遥测 SDK 是否已成功初始化。
   bool _configured = false;
@@ -54,12 +137,6 @@ class TelemetryService {
 
   /// 应用版本信息，初始化时读取一次。
   PackageInfo? _packageInfo;
-
-  /// 本次前台期间是否已上报 `Application Opened`。
-  bool _openReported = false;
-
-  /// 本次进程内是否已经历过前台（用于区分冷启动与回前台）。
-  bool _firstForeground = true;
 
   /// 当前前台时段的起始时间（用于统计使用时长）。
   DateTime? _foregroundSince;
@@ -132,6 +209,30 @@ class TelemetryService {
     };
   }
 
+  /// 平台大类：web / mobile / desktop。
+  static String get platformFamily {
+    if (kIsWeb) return 'web';
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android || TargetPlatform.iOS ||
+      TargetPlatform.fuchsia => 'mobile',
+      TargetPlatform.macOS || TargetPlatform.windows ||
+      TargetPlatform.linux => 'desktop',
+    };
+  }
+
+  /// 把异常归类为稳定的低基数标签，避免把用户可见文案或原始错误写进事件。
+  static String errorKind(Object error) {
+    return switch (error) {
+      XlfAccountLockedException() => 'account_locked',
+      XlfAuthException() => 'auth',
+      XlfNetworkException() => 'network',
+      XlfException() => 'platform',
+      TimeoutException() => 'timeout',
+      FormatException() => 'parse',
+      _ => 'unexpected',
+    };
+  }
+
   /// 是否需要向用户展示首次启动的「可选访问信息收集」说明页。
   ///
   /// 读取失败时按「未同意」处理：宁可多问一次，也不在状态未知时采集。
@@ -168,10 +269,10 @@ class TelemetryService {
         ..debug = kDebugMode
         // 用户同意之前不采集任何数据。
         ..optOut = !_consent
-        // 生命周期事件（安装 / 更新 / 打开 / 退到后台）由本服务自行采集，
-        // 保证每个事件都带有完整的公共属性与设备 ID。SDK 自带的自动采集
-        // 会在 setup() 阶段触发，早于属性注册，因此关闭。
-        ..captureApplicationLifecycleEvents = false
+        // 安装 / 更新 / 打开 / 退到后台由 SDK 自动采集，不再自行重复上报。
+        // 仅保留自定义的 `Application Session Ended`（前台时长），它不在
+        // SDK 的自动生命周期事件内。
+        ..captureApplicationLifecycleEvents = true
         // 预置设备 ID 作为匿名 ID，避免首个事件使用随机 ID。
         ..bootstrap = _deviceId.isEmpty
             ? null
@@ -181,13 +282,35 @@ class TelemetryService {
               )
         // 每台设备建立匿名用户画像，装机量与活跃用户按设备去重统计。
         ..personProfiles = PostHogPersonProfiles.always
-        // 显式关闭不需要的能力，减少外发数据面。
-        ..sessionReplay = false
-        ..surveys = false
+        // 输出前统一做一次 PII 清洗，作为事件构造代码之外的第二道防线。
+        ..beforeSend = [_sanitizeEvent]
+        // 功能开关：启动时预取，并在读取时上报 `$feature_flag_called`，
+        // 便于在 PostHog 中做实验与逐步放量。
+        ..preloadFeatureFlags = true
+        ..sendFeatureFlagEvent = true
+        ..evaluationContexts = ['myxlf', envName]
+        // 可选问卷：由 PostHog 项目后台配置，匿名展示与回收。
+        ..surveys = true
+        // 遥测不涉及推送，关闭与推送相关的自动采集。
         ..capturePushNotificationOpened = false
         ..capturePushNotificationSubscriptions = false
-        ..preloadFeatureFlags = false
-        ..sendFeatureFlagEvent = false;
+        // 会话回放会记录成绩与身份信息，明确保持关闭。
+        ..sessionReplay = false
+        // 连点自动捕获由原生 SDK 直接发送，不经过 beforeSend，且可能附带
+        // 被点击控件的文本（例如考试名），同样保持关闭。
+        ..rageClickConfig.enabled = false;
+
+      // 结构化日志：仅记录固定的流程标签与计数，不记录用户内容。
+      config.logsConfig
+        ..serviceName = 'myxlf'
+        ..serviceVersion = _packageInfo?.version
+        ..environment = envName
+        ..resourceAttributes = {
+          'app_env': envName,
+          'platform': platformName,
+          'platform_family': platformFamily,
+        }
+        ..beforeSend = [_sanitizeLog];
 
       // 崩溃 / 异常采集（用于崩溃、异常堆栈与稳定性统计）：
       // - Flutter 框架错误与 Dart 运行时错误在 main.dart 中手动上报，
@@ -270,9 +393,38 @@ class TelemetryService {
     try {
       await _registerCommonProperties();
       await _identifyDevice();
+      await _registerPersonProperties();
     } catch (e) {
       if (kDebugMode) debugPrint('PostHog 身份注册失败：$e');
     }
+  }
+
+  /// 写入匿名用户画像（person properties）。
+  ///
+  /// 只写版本、平台、语言与时间等运行环境信息，不关联账号、姓名、学校、
+  /// 成绩等任何个人数据。`$set_once` 用于保留首次见到该设备时的版本。
+  Future<void> _registerPersonProperties() async {
+    final info = _packageInfo;
+    if (info == null) return;
+    final now = DateTime.now().toUtc().toIso8601String();
+    await Posthog().setPersonProperties(
+      userPropertiesToSet: {
+        'app_version': info.version,
+        'app_build': info.buildNumber,
+        'platform': platformName,
+        'platform_family': platformFamily,
+        'os_version': osVersion,
+        'locale': localeName,
+        'app_env': envName,
+        'is_web': kIsWeb,
+        'last_seen_at': now,
+      },
+      userPropertiesToSetOnce: {
+        'first_seen_at': now,
+        'first_app_version': info.version,
+        'first_platform': platformName,
+      },
+    );
   }
 
   /// 记录用户对「可选访问信息收集」的选择，并立即生效。
@@ -300,16 +452,16 @@ class TelemetryService {
       await _optIn();
       _consent = true;
       await _applyIdentity();
-      await capture('Telemetry Opted In');
-      // 补上本次前台的使用事件（同意前 observer 的事件已被丢弃）。
+      await capture(TelemetryEvents.telemetryOptedIn);
+      // 从头开始计算本次前台时长；SDK 的打开事件在同意前已被丢弃，
+      // 这里不手动补报，避免与自动生命周期事件重复。
       await onForeground();
     } else {
       // 先留痕再关闭，随后立即停止一切采集。
-      await capture('Telemetry Opted Out');
+      await capture(TelemetryEvents.telemetryOptedOut);
       await _flush();
       await _optOut();
       _consent = false;
-      _openReported = false;
       _foregroundSince = null;
     }
   }
@@ -336,72 +488,27 @@ class TelemetryService {
     } catch (_) {}
   }
 
-  /// 冷启动或从后台回到前台：上报 `Application Opened`。
+  /// 冷启动或从后台回到前台：只记录本次前台起点。
   ///
-  /// 首次运行时还会判断并上报 `Application Installed` /
-  /// `Application Updated`（替代 SDK 自动采集的安装 / 更新事件）。
+  /// `Application Opened` / `Application Backgrounded` / 安装 / 更新均由
+  /// PostHog SDK 自动采集，这里不再重复上报。
   Future<void> onForeground() async {
     if (!isEnabled) return;
-    final fromBackground = !_firstForeground;
-    _firstForeground = false;
     _foregroundSince = DateTime.now();
-    if (_openReported) return;
-    _openReported = true;
-    await _checkInstallOrUpdate();
-    await capture(
-      'Application Opened',
-      properties: {'from_background': fromBackground},
-    );
   }
 
-  /// 退到后台 / 进程结束：上报 `Application Backgrounded` 与前台使用时长。
+  /// 退到后台 / 进程结束：上报自定义的前台使用时长。
+  ///
+  /// 这是 SDK 自动生命周期事件之外的补充指标，不会与
+  /// `Application Backgrounded` 重复。
   Future<void> onBackground() async {
     final since = _foregroundSince;
     _foregroundSince = null;
-    _openReported = false;
     if (!isEnabled || since == null) return;
     await capture(
-      'Application Session Ended',
+      TelemetryEvents.applicationSessionEnded,
       properties: {'duration_s': DateTime.now().difference(since).inSeconds},
     );
-    await capture('Application Backgrounded');
-  }
-
-  /// 判断本次启动是首次安装还是版本升级，并更新记录。
-  ///
-  /// 只有事件真正交给 SDK 后才写入版本号；否则安装 / 升级事件会永久丢失。
-  Future<void> _checkInstallOrUpdate() async {
-    final info = _packageInfo;
-    if (info == null) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final current = '${info.version}+${info.buildNumber}';
-      final previous = prefs.getString(_kLastVersionKey);
-      var reported = true;
-      if (previous == null) {
-        reported = await capture(
-          'Application Installed',
-          properties: {
-            'app_version': info.version,
-            'app_build': info.buildNumber,
-          },
-        );
-      } else if (previous != current) {
-        reported = await capture(
-          'Application Updated',
-          properties: {
-            'previous_version': previous,
-            'app_version': info.version,
-            'app_build': info.buildNumber,
-          },
-        );
-      }
-      if (previous != current && reported) {
-        await prefs.setString(_kLastVersionKey, current);
-      }
-    } catch (_) {
-      // 安装 / 更新判断失败不应影响启动。
-    }
   }
 
   /// 上报自定义事件；遥测关闭时不做任何事。
@@ -427,6 +534,75 @@ class TelemetryService {
     if (!isEnabled) return;
     try {
       await Posthog().screen(screenName: screenName);
+    } catch (_) {}
+  }
+
+  /// 记录一条结构化诊断日志。
+  ///
+  /// 只接受固定的流程标签与安全属性，不传用户内容或原始错误文案。
+  Future<void> captureDiagnosticLog(
+    String message, {
+    PostHogLogSeverity level = PostHogLogSeverity.info,
+    Map<String, Object>? attributes,
+  }) async {
+    if (!isEnabled) return;
+    try {
+      await Posthog().captureLog(
+        body: message,
+        level: level,
+        attributes: attributes,
+      );
+    } catch (_) {}
+  }
+
+  /// 给后续 `$exception` 附上一条面包屑（不包含用户内容）。
+  Future<void> addStep(
+    String message, {
+    Map<String, Object>? properties,
+  }) async {
+    if (!isEnabled) return;
+    try {
+      await Posthog().addExceptionStep(message, properties: properties);
+    } catch (_) {}
+  }
+
+  /// 读取布尔功能开关；读取本身会按配置上报 `$feature_flag_called`。
+  Future<bool> isFeatureEnabled(String flag) async {
+    if (!isEnabled) return false;
+    try {
+      return await Posthog().isFeatureEnabled(flag);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 重新拉取功能开关。
+  Future<void> reloadFeatureFlags() async {
+    if (!isEnabled) return;
+    try {
+      await Posthog().reloadFeatureFlags();
+    } catch (_) {}
+  }
+
+  /// 记录用户看到某个功能开关控制的功能（即实验曝光）。
+  Future<void> captureFeatureView(
+    String flag, {
+    String? variant,
+  }) async {
+    if (!isEnabled) return;
+    try {
+      await Posthog().captureFeatureView(flag, flagVariant: variant);
+    } catch (_) {}
+  }
+
+  /// 记录用户与功能开关控制的功能发生交互。
+  Future<void> captureFeatureInteraction(
+    String flag, {
+    String? variant,
+  }) async {
+    if (!isEnabled) return;
+    try {
+      await Posthog().captureFeatureInteraction(flag, flagVariant: variant);
     } catch (_) {}
   }
 
@@ -486,18 +662,151 @@ class TelemetryService {
     _consent = false;
     _deviceId = '';
     _packageInfo = null;
-    _openReported = false;
-    _firstForeground = true;
     _foregroundSince = null;
     _lastErrorSignature = null;
     _lastErrorAt = null;
   }
 }
 
+/// 明确禁止上报的属性名（比较时忽略大小写与下划线 / 连字符）。
+///
+/// 这是事件构造代码之外的第二道防线：即使将来某处误传了个人数据，也会在
+/// 真正发往 SDK 之前被移除。事件名本身不在清洗范围内。
+const Set<String> _sensitivePropertyKeys = {
+  'password',
+  'passwd',
+  'pwd',
+  'secret',
+  'token',
+  'cookie',
+  'cookies',
+  'authorization',
+  'username',
+  'user_name',
+  'userid',
+  'user_id',
+  'name',
+  'realname',
+  'real_name',
+  'student',
+  'studentname',
+  'student_name',
+  'school',
+  'schoolname',
+  'school_name',
+  'class',
+  'classname',
+  'class_name',
+  'grade',
+  'gradename',
+  'grade_name',
+  'score',
+  'scores',
+  'totalscore',
+  'total_score',
+  'myscore',
+  'my_score',
+  'answer',
+  'answers',
+  'correctanswer',
+  'correct_answer',
+  'selectedanswer',
+  'selected_answer',
+  'question',
+  'questions',
+  'questiontext',
+  'question_text',
+  'examname',
+  'exam_name',
+  'testname',
+  'test_name',
+  'phone',
+  'mobile',
+  'telephone',
+  'email',
+  'idcard',
+  'id_card',
+  'address',
+  'location',
+  'latitude',
+  'longitude',
+  'ip',
+  'ipaddress',
+  'ip_address',
+};
+
+/// 事件与日志共用的 PII 文本规则：邮箱、手机号、15～18 位长数字。
+final RegExp _emailPattern = RegExp(
+  r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}',
+);
+final RegExp _phonePattern = RegExp(r'(?<!\d)1[3-9]\d{9}(?!\d)');
+final RegExp _longNumberPattern = RegExp(r'(?<!\d)\d{15,18}(?!\d)');
+
+String _normalizeKey(String key) {
+  return key
+      .replaceAll(RegExp(r'[^A-Za-z0-9]'), '')
+      .toLowerCase();
+}
+
+/// 清洗单个文本值：邮箱、手机号、证件号与 URL 查询参数不上报。
+String _scrubText(String value) {
+  var scrubbed = value
+      .replaceAll(_emailPattern, '[redacted-email]')
+      .replaceAll(_phonePattern, '[redacted-phone]')
+      .replaceAll(_longNumberPattern, '[redacted-number]');
+  if (scrubbed.startsWith('http://') || scrubbed.startsWith('https://')) {
+    // 只保留协议、主机与路径：查询参数 / 片段可能带 token 或个人信息。
+    scrubbed = scrubbed.replaceFirst(RegExp(r'[?#].*$'), '');
+  }
+  return scrubbed;
+}
+
+Object? _scrubValue(Object? value) {
+  if (value is String) return _scrubText(value);
+  if (value is Map) {
+    return _scrubMap(value);
+  }
+  if (value is Iterable) {
+    return value.map(_scrubValue).toList(growable: false);
+  }
+  return value;
+}
+
+Map<String, Object>? _scrubMap(Map<dynamic, dynamic>? input) {
+  if (input == null) return null;
+  final output = <String, Object>{};
+  for (final entry in input.entries) {
+    final key = entry.key.toString();
+    if (_sensitivePropertyKeys.contains(_normalizeKey(key))) continue;
+    final value = _scrubValue(entry.value);
+    if (value != null) output[key] = value;
+  }
+  return output;
+}
+
+/// `beforeSend`：在事件发往 PostHog 前移除敏感属性并清洗文本。
+PostHogEvent? _sanitizeEvent(PostHogEvent event) {
+  event.properties = _scrubMap(event.properties);
+  event.userProperties = _scrubMap(event.userProperties);
+  event.userPropertiesSetOnce = _scrubMap(event.userPropertiesSetOnce);
+  return event;
+}
+
+/// 日志的 `beforeSend`：与事件使用同一套属性与文本清洗规则。
+PostHogLogRecord? _sanitizeLog(PostHogLogRecord record) {
+  final body = _scrubText(record.body);
+  if (body.trim().isEmpty) return null;
+  record
+    ..body = body
+    ..attributes = _scrubMap(record.attributes);
+  return record;
+}
+
 /// 路由观察者：把页面浏览上报为 `$screen` 事件。
 ///
 /// 页面名称取自各路由的 `RouteSettings.name`（见各页面的跳转调用），
-/// 未命名的路由不上报，避免出现无意义的页面名。
+/// 未命名的路由不上报。这里不用 PosthogObserver 的默认页面上报，是因为
+/// 它在关闭对话框时会再次上报下层页面，导致页面浏览重复计数。
 class TelemetryScreenObserver extends NavigatorObserver {
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
@@ -525,7 +834,9 @@ class TelemetryScreenObserver extends NavigatorObserver {
   }
 }
 
-/// 前后台切换观察者：驱动安装 / 打开 / 后台事件与前台使用时长统计。
+/// 前后台切换观察者：只驱动自定义的前台使用时长统计。
+///
+/// 安装 / 打开 / 后台等标准生命周期事件由 PostHog SDK 自动采集。
 class TelemetryLifecycleObserver with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

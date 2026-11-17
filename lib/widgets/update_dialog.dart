@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/telemetry.dart';
 import '../services/update_checker.dart';
 
 Future<void>? _activeUpdateDialog;
@@ -10,14 +13,33 @@ Future<void>? _activeUpdateDialog;
 /// 展示新版本提示（手动检查与启动时自动检查共用）。
 ///
 /// 同一时间只保留一个更新对话框，避免自动检查与手动检查同时完成时重复弹出。
-Future<void> showUpdateDialog(BuildContext context, UpdateInfo info) {
+Future<void> showUpdateDialog(
+  BuildContext context,
+  UpdateInfo info, {
+  String source = 'manual',
+}) {
+  if (_activeUpdateDialog != null) return _activeUpdateDialog!;
+  unawaited(
+    TelemetryService.instance.capture(
+      TelemetryEvents.updateDialogShown,
+      properties: {
+        'source': source,
+        'has_release_notes': (info.releaseNotes ?? '').trim().isNotEmpty,
+      },
+    ),
+  );
   return _activeUpdateDialog ??= _showUpdateDialog(
     context,
     info,
+    source: source,
   ).whenComplete(() => _activeUpdateDialog = null);
 }
 
-Future<void> _showUpdateDialog(BuildContext context, UpdateInfo info) {
+Future<void> _showUpdateDialog(
+  BuildContext context,
+  UpdateInfo info, {
+  required String source,
+}) {
   final textTheme = Theme.of(context).textTheme;
   final scheme = Theme.of(context).colorScheme;
   return showDialog<void>(
@@ -46,7 +68,11 @@ Future<void> _showUpdateDialog(BuildContext context, UpdateInfo info) {
                 styleSheet: _releaseNotesStyle(context),
                 onTapLink: (_, href, __) {
                   if (href != null && href.isNotEmpty) {
-                    _openUrl(ScaffoldMessenger.of(ctx), href);
+                    _openUrl(
+                      ScaffoldMessenger.of(ctx),
+                      href,
+                      target: 'release_notes',
+                    );
                   }
                 },
               ),
@@ -56,14 +82,28 @@ Future<void> _showUpdateDialog(BuildContext context, UpdateInfo info) {
       ),
       actions: [
         M3ETextButton(
-          onPressed: () => Navigator.pop(ctx),
+          onPressed: () {
+            unawaited(
+              TelemetryService.instance.capture(
+                TelemetryEvents.updateDialogAction,
+                properties: {'action': 'later', 'source': source},
+              ),
+            );
+            Navigator.pop(ctx);
+          },
           child: const Text('稍后再说'),
         ),
         M3EFilledButton(
           onPressed: () {
+            unawaited(
+              TelemetryService.instance.capture(
+                TelemetryEvents.updateDialogAction,
+                properties: {'action': 'download', 'source': source},
+              ),
+            );
             final messenger = ScaffoldMessenger.of(ctx);
             Navigator.pop(ctx);
-            _openUrl(messenger, info.releaseUrl);
+            _openUrl(messenger, info.releaseUrl, target: 'release');
           },
           child: const Text('前往下载'),
         ),
@@ -73,14 +113,38 @@ Future<void> _showUpdateDialog(BuildContext context, UpdateInfo info) {
 }
 
 /// 用系统浏览器打开链接；失败时通过根 ScaffoldMessenger 提示。
-Future<void> _openUrl(ScaffoldMessengerState messenger, String url) async {
+Future<void> _openUrl(
+  ScaffoldMessengerState messenger,
+  String url, {
+  required String target,
+}) async {
   try {
     final ok = await launchUrl(
       Uri.parse(url),
       mode: LaunchMode.externalApplication,
     );
     if (!ok) throw Exception();
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.externalLinkOpened,
+        properties: {
+          'link': target,
+          'source': 'update_dialog',
+          'success': true,
+        },
+      ),
+    );
   } catch (_) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.externalLinkOpened,
+        properties: {
+          'link': target,
+          'source': 'update_dialog',
+          'success': false,
+        },
+      ),
+    );
     if (!messenger.mounted) return;
     messenger.showSnackBar(
       SnackBar(

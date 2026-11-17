@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../services/image_actions.dart';
 import '../services/image_store.dart';
+import '../services/telemetry.dart';
 import '../theme/responsive.dart';
 import '../widgets/xlf_image.dart';
 
@@ -60,16 +63,41 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _run(Future<void> Function() task) async {
+  Future<void> _run(Future<void> Function() task, String event) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
       await task();
     } catch (e) {
+      unawaited(
+        TelemetryService.instance.capture(
+          event,
+          properties: {
+            'success': false,
+            'page': _index + 1,
+            'page_count': widget.urls.length,
+            'error_kind': TelemetryService.errorKind(e),
+          },
+        ),
+      );
       _showMessage('操作失败：$e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _reportAction(String event, String target, {bool success = true}) {
+    unawaited(
+      TelemetryService.instance.capture(
+        event,
+        properties: {
+          'success': success,
+          'page': _index + 1,
+          'page_count': widget.urls.length,
+          'target': target,
+        },
+      ),
+    );
   }
 
   Future<void> _share() async {
@@ -79,6 +107,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       fileName: _fileName(),
       text: '${widget.title} · 第 ${_index + 1} 页',
     );
+    _reportAction(TelemetryEvents.imageShared, outcome.target.name);
     if (!mounted) return;
     switch (outcome.target) {
       case ShareTarget.download:
@@ -95,6 +124,11 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     final outcome = await ImageActions.saveToGallery(
       bytes,
       fileName: _fileName(),
+    );
+    _reportAction(
+      TelemetryEvents.imageSaved,
+      outcome.target.name,
+      success: outcome.target != SaveTarget.permissionDenied,
     );
     if (!mounted) return;
     _showMessage(switch (outcome.target) {
@@ -163,12 +197,18 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
             else ...[
               IconButton(
                 tooltip: '分享',
-                onPressed: () => _run(_share),
+                onPressed: () => _run(
+                  _share,
+                  TelemetryEvents.imageShared,
+                ),
                 icon: const Icon(Icons.share_outlined),
               ),
               IconButton(
                 tooltip: '保存到相册',
-                onPressed: () => _run(_save),
+                onPressed: () => _run(
+                  _save,
+                  TelemetryEvents.imageSaved,
+                ),
                 icon: const Icon(Icons.download_outlined),
               ),
             ],
@@ -179,7 +219,18 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
             PageView.builder(
               controller: _pageController,
               itemCount: widget.urls.length,
-              onPageChanged: (i) => setState(() => _index = i),
+              onPageChanged: (i) {
+                setState(() => _index = i);
+                unawaited(
+                  TelemetryService.instance.capture(
+                    TelemetryEvents.imagePageChanged,
+                    properties: {
+                      'page': i + 1,
+                      'page_count': widget.urls.length,
+                    },
+                  ),
+                );
+              },
               itemBuilder: (_, i) => _ZoomableImage(url: widget.urls[i]),
             ),
             if (widget.urls.length > 1)

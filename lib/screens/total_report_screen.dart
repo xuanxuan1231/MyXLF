@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
@@ -5,6 +7,7 @@ import '../models/models.dart';
 import '../services/enhancement_settings.dart';
 import '../services/offline_cache.dart';
 import '../services/parsers.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/chart_image.dart';
@@ -39,6 +42,9 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
   bool _fromCache = false;
   DateTime? _cachedAt;
 
+  /// 是否已完成过一次加载，用于区分首次进入与刷新 / 重试。
+  bool _firstLoad = true;
+
   @override
   void initState() {
     super.initState();
@@ -57,6 +63,9 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
   }
 
   Future<void> _load() async {
+    final stopwatch = Stopwatch()..start();
+    final isRefresh = !_firstLoad;
+    _firstLoad = false;
     setState(() {
       _loading = true;
       _error = null;
@@ -69,6 +78,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
       final html = await XlfClient.instance.fetchTotalReportHtml(widget.testId);
       await OfflineCache.instance.write(cacheKey, html);
       final report = Parsers.parseTotalReport(html);
+      _reportLoaded(report, source: 'network', stopwatch: stopwatch);
       if (!mounted) return;
       setState(() {
         _report = report;
@@ -82,6 +92,12 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
       if (cached != null) {
         try {
           final report = Parsers.parseTotalReport(cached.html);
+          _reportLoaded(
+            report,
+            source: 'cache',
+            stopwatch: stopwatch,
+            errorKind: TelemetryService.errorKind(e),
+          );
           if (!mounted) return;
           setState(() {
             _report = report;
@@ -95,6 +111,17 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
           // 缓存内容无法解析时按真实网络错误处理。
         }
       }
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.reportLoadFailed,
+          properties: {
+            'report_type': 'total',
+            'error_kind': TelemetryService.errorKind(e),
+            'is_refresh': isRefresh,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _error = e.toString();
@@ -103,7 +130,37 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     }
   }
 
+  /// 成绩报告加载完成：只上报数量与内容结构，不上报分数或考试信息。
+  void _reportLoaded(
+    TotalReport report, {
+    required String source,
+    required Stopwatch stopwatch,
+    String? errorKind,
+  }) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.reportLoaded,
+        properties: {
+          'report_type': 'total',
+          'source': source,
+          'subject_count': report.scoreReport.subjects.length,
+          'has_performance': _hasPerformance(report),
+          'has_notes': _hasNotes(report),
+          'chart_count': report.chartImages.length,
+          if (errorKind != null) 'error_kind': errorKind,
+          'duration_ms': stopwatch.elapsedMilliseconds,
+        },
+      ),
+    );
+  }
+
   void _openSubject(SubjectLink link) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.subjectReportOpened,
+        properties: const {'source': 'total_report'},
+      ),
+    );
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SubjectReportScreen(link: link),
@@ -113,6 +170,12 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
   }
 
   void _openExport(TotalReport report) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.reportExportOpened,
+        properties: const {'source': 'total_report'},
+      ),
+    );
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ReportExportScreen(report: report),
@@ -378,14 +441,33 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
 
     return EnhancementNotice(
       message: message,
-      onDismissOnce: () =>
-          settings.dismissNoticeOnce(feature, scope: widget.testId),
+      onDismissOnce: () {
+        unawaited(
+          TelemetryService.instance.capture(
+            TelemetryEvents.enhancementNoticeAction,
+            properties: {'feature': feature.id, 'action': 'dismiss_once'},
+          ),
+        );
+        settings.dismissNoticeOnce(feature, scope: widget.testId);
+      },
       onHidePermanently: () async {
+        unawaited(
+          TelemetryService.instance.capture(
+            TelemetryEvents.enhancementNoticeAction,
+            properties: {'feature': feature.id, 'action': 'hide_permanently'},
+          ),
+        );
         await settings.hideNoticePermanently(feature);
         if (!mounted) return;
         _showSnack('已永久关闭此提示，可在「账户 → 增强功能」中管理。');
       },
       onDisableFeature: () async {
+        unawaited(
+          TelemetryService.instance.capture(
+            TelemetryEvents.enhancementNoticeAction,
+            properties: {'feature': feature.id, 'action': 'disable_feature'},
+          ),
+        );
         await settings.setEnabled(feature, enabled: false);
         if (!mounted) return;
         _showSnack(
@@ -962,6 +1044,9 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
   }
 
   void _showNotes(TotalReport report) {
+    unawaited(
+      TelemetryService.instance.capture(TelemetryEvents.reportNotesOpened),
+    );
     final levelDescription = (report.levelDescription ?? '').trim();
     final rankDescription = (report.rankDescription ?? '').trim();
     showDialog<void>(

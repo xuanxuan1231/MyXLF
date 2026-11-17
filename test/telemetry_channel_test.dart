@@ -74,7 +74,7 @@ void main() {
   });
 
   group('初始化', () {
-    test('未同意时以 optOut 状态启动，且不开启 SDK 自动生命周期采集', () async {
+    test('未同意时以 optOut 状态启动，生命周期交给 SDK 自动采集', () async {
       SharedPreferences.setMockInitialValues({});
       await TelemetryService.instance.init();
 
@@ -86,7 +86,22 @@ void main() {
 
       final setup = log.call('setup').arguments as Map;
       expect(setup['optOut'], isTrue);
-      expect(setup['captureApplicationLifecycleEvents'], isFalse);
+      expect(setup['captureApplicationLifecycleEvents'], isTrue);
+    });
+
+    test('在隐私边界内开启画像 / 功能开关 / 问卷，并关闭回放与连点捕获', () async {
+      SharedPreferences.setMockInitialValues({'telemetry_consent': true});
+      await TelemetryService.instance.init();
+
+      final setup = log.call('setup').arguments as Map;
+      expect(setup['sessionReplay'], isFalse);
+      expect((setup['rageClickConfig'] as Map)['enabled'], isFalse);
+      expect(setup['personProfiles'], 'always');
+      expect(setup['preloadFeatureFlags'], isTrue);
+      expect(setup['sendFeatureFlagEvents'], isTrue);
+      expect(setup['surveys'], isTrue);
+      expect(setup['capturePushNotificationOpened'], isFalse);
+      expect(setup['capturePushNotificationSubscriptions'], isFalse);
     });
 
     test('已同意时初始化后立即注册公共属性与设备 ID', () async {
@@ -121,52 +136,23 @@ void main() {
   });
 
   group('生命周期事件', () {
-    test('首次前台上报 Application Opened 与 Application Installed', () async {
+    test('不再手动重复上报 SDK 自动采集的生命周期事件', () async {
       SharedPreferences.setMockInitialValues({'telemetry_consent': true});
       await TelemetryService.instance.init();
       log.calls.clear();
 
       await TelemetryService.instance.onForeground();
+      await TelemetryService.instance.onBackground();
 
-      expect(
-        log.capturedEvents(),
-        containsAll(['Application Installed', 'Application Opened']),
-      );
-      expect(log.propertiesOf('Application Opened')['from_background'], false);
+      final events = log.capturedEvents();
+      expect(events, isNot(contains('Application Opened')));
+      expect(events, isNot(contains('Application Backgrounded')));
+      expect(events, isNot(contains('Application Installed')));
+      expect(events, isNot(contains('Application Updated')));
+      expect(events, contains('Application Session Ended'));
     });
 
-    test('同一次前台重复 resumed 不会重复计数', () async {
-      SharedPreferences.setMockInitialValues({'telemetry_consent': true});
-      await TelemetryService.instance.init();
-      log.calls.clear();
-
-      await TelemetryService.instance.onForeground();
-      await TelemetryService.instance.onForeground();
-
-      expect(
-        log.capturedEvents().where((e) => e == 'Application Opened').length,
-        1,
-      );
-    });
-
-    test('版本变化时上报 Application Updated 并带旧版本号', () async {
-      SharedPreferences.setMockInitialValues({
-        'telemetry_consent': true,
-        'telemetry_last_version': '0.0.0+1',
-      });
-      await TelemetryService.instance.init();
-      log.calls.clear();
-
-      await TelemetryService.instance.onForeground();
-
-      expect(log.capturedEvents(), contains('Application Updated'));
-      expect(
-        log.propertiesOf('Application Updated')['previous_version'],
-        '0.0.0+1',
-      );
-    });
-
-    test('退到后台上报使用时长与 Application Backgrounded', () async {
+    test('退到后台只补报自定义的前台使用时长', () async {
       SharedPreferences.setMockInitialValues({'telemetry_consent': true});
       await TelemetryService.instance.init();
       await TelemetryService.instance.onForeground();
@@ -174,13 +160,25 @@ void main() {
 
       await TelemetryService.instance.onBackground();
 
-      expect(
-        log.capturedEvents(),
-        containsAll(['Application Session Ended', 'Application Backgrounded']),
-      );
+      expect(log.capturedEvents(), ['Application Session Ended']);
       expect(
         log.propertiesOf('Application Session Ended')['duration_s'],
         isA<int>(),
+      );
+    });
+
+    test('同一次前台重复 resumed 只保留一个计时起点', () async {
+      SharedPreferences.setMockInitialValues({'telemetry_consent': true});
+      await TelemetryService.instance.init();
+      await TelemetryService.instance.onForeground();
+      await TelemetryService.instance.onForeground();
+      log.calls.clear();
+
+      await TelemetryService.instance.onBackground();
+
+      expect(
+        log.capturedEvents().where((e) => e == 'Application Session Ended'),
+        hasLength(1),
       );
     });
 
@@ -195,10 +193,7 @@ void main() {
       );
       await pumpEventQueue();
 
-      expect(
-        log.capturedEvents(),
-        containsAll(['Application Session Ended', 'Application Backgrounded']),
-      );
+      expect(log.capturedEvents(), contains('Application Session Ended'));
     });
 
     test('退出统计后不再上报生命周期事件', () async {
@@ -231,7 +226,7 @@ void main() {
       expect(TelemetryService.instance.isConsented, isFalse);
     });
 
-    test('重新加入会再次注册身份并补报本次打开', () async {
+    test('重新加入会再次注册身份，且不手动补报自动生命周期事件', () async {
       SharedPreferences.setMockInitialValues({'telemetry_consent': true});
       await TelemetryService.instance.init();
       await TelemetryService.instance.setConsent(enabled: false);
@@ -241,7 +236,7 @@ void main() {
 
       expect(log.has('enable'), isTrue);
       expect(log.capturedEvents(), contains('Telemetry Opted In'));
-      expect(log.capturedEvents(), contains('Application Opened'));
+      expect(log.capturedEvents(), isNot(contains('Application Opened')));
       // 退出期间可能丢弃了注册，重新加入后必须再次 register。
       expect(log.has('register'), isTrue);
     });

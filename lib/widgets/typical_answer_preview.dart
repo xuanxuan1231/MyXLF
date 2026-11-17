@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../models/models.dart';
 import '../screens/image_viewer_screen.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
 import 'xlf_image.dart';
@@ -45,6 +48,7 @@ class _TypicalAnswerPreviewState extends State<TypicalAnswerPreview> {
   }
 
   Future<void> _load() async {
+    final stopwatch = Stopwatch()..start();
     setState(() {
       _loading = true;
       _error = null;
@@ -55,12 +59,30 @@ class _TypicalAnswerPreviewState extends State<TypicalAnswerPreview> {
         widget.form,
         widget.questionNumber,
       );
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.typicalAnswerLoaded,
+          properties: {
+            'count': images.length,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _images = images;
         _loading = false;
       });
     } catch (e) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.typicalAnswerFailed,
+          properties: {
+            'error_kind': TelemetryService.errorKind(e),
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _error = e.toString();
@@ -70,6 +92,12 @@ class _TypicalAnswerPreviewState extends State<TypicalAnswerPreview> {
   }
 
   void _openViewer(int index) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.typicalAnswerOpened,
+        properties: {'index': index + 1, 'count': _images.length},
+      ),
+    );
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ImageViewerScreen(

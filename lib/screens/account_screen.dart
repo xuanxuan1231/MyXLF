@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_top_bar.dart';
@@ -77,6 +80,12 @@ class AccountScreen extends StatelessWidget {
   }
 
   Future<void> _logout(BuildContext context) async {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.logout,
+        properties: const {'method': 'account_page'},
+      ),
+    );
     await XlfClient.instance.clearSession();
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(

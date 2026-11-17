@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
@@ -5,6 +7,7 @@ import '../models/models.dart';
 import '../services/enhancement_settings.dart';
 import '../services/offline_cache.dart';
 import '../services/parsers.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_pull_to_refresh.dart';
@@ -82,6 +85,7 @@ class _TrendScreenState extends State<TrendScreen> {
   }
 
   Future<void> _load() async {
+    final stopwatch = Stopwatch()..start();
     setState(() {
       _loading = true;
       _error = null;
@@ -90,6 +94,7 @@ class _TrendScreenState extends State<TrendScreen> {
       _total = 0;
     });
 
+    var homeFromCache = false;
     final homeKey = OfflineCache.instance.homeKey(
       username: widget.account.username,
     );
@@ -114,6 +119,7 @@ class _TrendScreenState extends State<TrendScreen> {
     } catch (e) {
       final cached = await OfflineCache.instance.read(homeKey);
       if (cached == null) {
+        _reportTrendFailed(e, stopwatch);
         if (!mounted) return;
         setState(() {
           _error = e.toString();
@@ -125,6 +131,7 @@ class _TrendScreenState extends State<TrendScreen> {
         exams = Parsers.parseExamList(cached.html);
       } catch (_) {
         // 缓存内容损坏时按真实网络错误处理。
+        _reportTrendFailed(e, stopwatch);
         if (!mounted) return;
         setState(() {
           _error = e.toString();
@@ -132,6 +139,7 @@ class _TrendScreenState extends State<TrendScreen> {
         });
         return;
       }
+      homeFromCache = true;
       if (!mounted) return;
       setState(() {
         _fromCache = true;
@@ -144,6 +152,14 @@ class _TrendScreenState extends State<TrendScreen> {
         ? sorted.sublist(sorted.length - _maxExams)
         : sorted;
     if (targets.isEmpty) {
+      _reportTrendLoaded(
+        examCount: 0,
+        reportCount: 0,
+        cacheCount: 0,
+        failedCount: 0,
+        homeFromCache: homeFromCache,
+        stopwatch: stopwatch,
+      );
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -158,6 +174,7 @@ class _TrendScreenState extends State<TrendScreen> {
 
     // 逐份加载而不是并发请求：DWR 报告接口对并发不友好，顺序加载还能
     // 让图表早点出现第一段趋势。
+    var cachedReports = 0;
     for (var i = 0; i < targets.length; i++) {
       final exam = targets[i];
       final username = XlfClient.instance.currentUsername;
@@ -192,6 +209,7 @@ class _TrendScreenState extends State<TrendScreen> {
           _reports.add(_ExamReport(exam: exam, report: report));
         }
         if (fromCache) {
+          cachedReports++;
           _fromCache = true;
           if (cachedAt != null &&
               (_cachedAt == null || cachedAt.isAfter(_cachedAt!))) {
@@ -202,6 +220,14 @@ class _TrendScreenState extends State<TrendScreen> {
       });
     }
 
+    _reportTrendLoaded(
+      examCount: targets.length,
+      reportCount: _reports.length,
+      cacheCount: cachedReports,
+      failedCount: targets.length - _reports.length,
+      homeFromCache: homeFromCache,
+      stopwatch: stopwatch,
+    );
     if (!mounted) return;
     setState(() {
       _loading = false;
@@ -216,6 +242,43 @@ class _TrendScreenState extends State<TrendScreen> {
         }
       }
     });
+  }
+
+  /// 趋势加载完成：只上报考试 / 报告数量与缓存命中，不上报分数或科目名。
+  void _reportTrendLoaded({
+    required int examCount,
+    required int reportCount,
+    required int cacheCount,
+    required int failedCount,
+    required bool homeFromCache,
+    required Stopwatch stopwatch,
+  }) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.trendLoaded,
+        properties: {
+          'exam_count': examCount,
+          'report_count': reportCount,
+          'cache_count': cacheCount,
+          'failed_count': failedCount,
+          'exam_list_from_cache': homeFromCache,
+          'duration_ms': stopwatch.elapsedMilliseconds,
+        },
+      ),
+    );
+  }
+
+  void _reportTrendFailed(Object error, Stopwatch stopwatch) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.trendLoadFailed,
+        properties: {
+          'source': 'exam_list',
+          'error_kind': TelemetryService.errorKind(error),
+          'duration_ms': stopwatch.elapsedMilliseconds,
+        },
+      ),
+    );
   }
 
   /// 按考试日期升序排列；日期缺失时退回考试 ID。
@@ -314,6 +377,12 @@ class _TrendScreenState extends State<TrendScreen> {
   void _onSubjectChanged(List<M3EDropdownItem<String>> items) {
     final value = items.isEmpty ? _totalKey : items.first.value;
     if (value == _selectedSubject) return;
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.trendMetricChanged,
+        properties: {'metric': value == _totalKey ? 'total' : 'subject'},
+      ),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && value != _selectedSubject) {
         setState(() => _selectedSubject = value);
@@ -343,6 +412,12 @@ class _TrendScreenState extends State<TrendScreen> {
   }
 
   void _openReport(_ExamReport item) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.trendReportOpened,
+        properties: {'metric': _selectedSubject.isEmpty ? 'total' : 'subject'},
+      ),
+    );
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => TotalReportScreen(

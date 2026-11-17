@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config.dart';
+import '../services/telemetry.dart';
 import '../services/update_checker.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_top_bar.dart';
@@ -60,6 +63,13 @@ class _AboutScreenState extends State<AboutScreen> {
     });
     final saved = await UpdateChecker.instance.setAutoCheckEnabled(value);
     final actual = await UpdateChecker.instance.isAutoCheckEnabled();
+    final success = saved && actual == value;
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.updateAutoCheckChanged,
+        properties: {'enabled': actual, 'success': success},
+      ),
+    );
     if (!mounted) return;
     setState(() {
       _savingAutoCheck = false;
@@ -106,7 +116,27 @@ class _AboutScreenState extends State<AboutScreen> {
         mode: LaunchMode.externalApplication,
       );
       if (!ok) throw Exception();
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.externalLinkOpened,
+          properties: const {
+            'link': 'github',
+            'source': 'about',
+            'success': true,
+          },
+        ),
+      );
     } catch (_) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.externalLinkOpened,
+          properties: const {
+            'link': 'github',
+            'source': 'about',
+            'success': false,
+          },
+        ),
+      );
       if (!mounted) return;
       _showSnack('无法打开链接：$url');
     }

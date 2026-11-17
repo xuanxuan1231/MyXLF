@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../services/offline_cache.dart';
 import '../services/parsers.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -32,6 +35,9 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
   bool _fromCache = false;
   DateTime? _cachedAt;
 
+  /// 是否已完成过一次加载，用于区分首次进入与刷新 / 重试。
+  bool _firstLoad = true;
+
   @override
   void initState() {
     super.initState();
@@ -39,6 +45,9 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
   }
 
   Future<void> _load() async {
+    final stopwatch = Stopwatch()..start();
+    final isRefresh = !_firstLoad;
+    _firstLoad = false;
     setState(() {
       _loading = true;
       _error = null;
@@ -52,6 +61,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
       final html = await XlfClient.instance.fetchSubjectReportHtml(widget.link);
       await OfflineCache.instance.write(cacheKey, html);
       final report = Parsers.parseSubjectReport(html);
+      _reportLoaded(report, source: 'network', stopwatch: stopwatch);
       if (!mounted) return;
       setState(() {
         _report = report;
@@ -64,6 +74,12 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
       if (cached != null) {
         try {
           final report = Parsers.parseSubjectReport(cached.html);
+          _reportLoaded(
+            report,
+            source: 'cache',
+            stopwatch: stopwatch,
+            errorKind: TelemetryService.errorKind(e),
+          );
           if (!mounted) return;
           setState(() {
             _report = report;
@@ -77,12 +93,47 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
           // 缓存损坏时按真实网络错误处理。
         }
       }
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.reportLoadFailed,
+          properties: {
+            'report_type': 'subject',
+            'error_kind': TelemetryService.errorKind(e),
+            'is_refresh': isRefresh,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
       });
     }
+  }
+
+  /// 学科报告加载完成：只上报内容结构，不上报科目、分数或题目内容。
+  void _reportLoaded(
+    SubjectReport report, {
+    required String source,
+    required Stopwatch stopwatch,
+    String? errorKind,
+  }) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.reportLoaded,
+        properties: {
+          'report_type': 'subject',
+          'source': source,
+          'question_count': report.questions.length,
+          'has_answer_sheet': report.answerSheet != null,
+          'gain_loss_count': report.gainLossStats.length,
+          'chart_count': report.chartImages.length,
+          if (errorKind != null) 'error_kind': errorKind,
+          'duration_ms': stopwatch.elapsedMilliseconds,
+        },
+      ),
+    );
   }
 
   @override
@@ -259,6 +310,12 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
   void _openAnswerSheet(SubjectReport report) {
     final form = report.answerSheet;
     if (form == null) return;
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.answerSheetOpened,
+        properties: const {'source': 'subject_report'},
+      ),
+    );
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => AnswerSheetScreen(title: '我的答卷', form: form),

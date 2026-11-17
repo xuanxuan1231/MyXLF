@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../services/offline_cache.dart';
 import '../services/parsers.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_pull_to_refresh.dart';
@@ -39,6 +42,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _fromCache = false;
   DateTime? _cachedAt;
 
+  /// 是否已完成过一次加载，用于区分首次进入与刷新 / 重试。
+  bool _firstLoad = true;
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +52,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _load() async {
+    final stopwatch = Stopwatch()..start();
+    final isRefresh = !_firstLoad;
+    _firstLoad = false;
     setState(() {
       _loading = true;
       _error = null;
@@ -55,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
       schoolYearId: _schoolYearId,
       testSemester: _testSemester,
     );
+    var source = 'network';
     try {
       var html = await _fetch();
       var exams = Parsers.parseExamList(html);
@@ -62,6 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // 服务器偶发会清空考试列表（浏览报告后尤其常见）。此时用当前登录
       // 账号自动重新登录一次以恢复会话；仍为空则按真实「暂无记录」展示。
       if (exams.isEmpty) {
+        source = 'network_retry';
         await XlfClient.instance.relogin();
         html = await _fetch();
         exams = Parsers.parseExamList(html);
@@ -71,6 +82,19 @@ class _HomeScreenState extends State<HomeScreen> {
       if (exams.isNotEmpty) {
         await OfflineCache.instance.write(cacheKey, html);
       }
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.examListLoaded,
+          properties: {
+            'count': exams.length,
+            'source': source,
+            'is_refresh': isRefresh,
+            'filters_available':
+                filters.schoolYears.isNotEmpty || filters.semesters.isNotEmpty,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _exams = exams;
@@ -88,6 +112,21 @@ class _HomeScreenState extends State<HomeScreen> {
         try {
           final exams = Parsers.parseExamList(cached.html);
           final filters = Parsers.parseFilters(cached.html);
+          unawaited(
+            TelemetryService.instance.capture(
+              TelemetryEvents.examListLoaded,
+              properties: {
+                'count': exams.length,
+                'source': 'cache',
+                'is_refresh': isRefresh,
+                'filters_available':
+                    filters.schoolYears.isNotEmpty ||
+                    filters.semesters.isNotEmpty,
+                'error_kind': TelemetryService.errorKind(e),
+                'duration_ms': stopwatch.elapsedMilliseconds,
+              },
+            ),
+          );
           if (!mounted) return;
           setState(() {
             _exams = exams;
@@ -105,6 +144,16 @@ class _HomeScreenState extends State<HomeScreen> {
           // 缓存内容损坏时按真实网络错误处理。
         }
       }
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.examListFailed,
+          properties: {
+            'error_kind': TelemetryService.errorKind(e),
+            'is_refresh': isRefresh,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _error = e.toString();
@@ -121,6 +170,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openExam(Exam exam) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.examOpened,
+        properties: {
+          'source': 'home',
+          'subject_count': exam.subjects.length,
+          'has_date': exam.date != null,
+        },
+      ),
+    );
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) =>
@@ -155,6 +214,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onYearChanged(List<M3EDropdownItem<String>> items) {
     final v = items.isEmpty ? null : items.first.value;
     if (v == _schoolYearId) return;
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.examFilterChanged,
+        properties: {'filter': 'school_year', 'selected': v != null},
+      ),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && v != _schoolYearId) setState(() => _schoolYearId = v);
     });
@@ -163,6 +228,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onSemesterChanged(List<M3EDropdownItem<String>> items) {
     final v = items.isEmpty ? null : items.first.value;
     if (v == _testSemester) return;
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.examFilterChanged,
+        properties: {'filter': 'semester', 'selected': v != null},
+      ),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && v != _testSemester) setState(() => _testSemester = v);
     });

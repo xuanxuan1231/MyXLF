@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
@@ -31,6 +33,13 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
     } catch (_) {
       // 保存失败不应阻塞进入应用；下次启动会再次询问。
     }
+    // 仅当用户选择加入时该事件才会真正上报；选择退出后不再发送任何数据。
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.consentCompleted,
+        properties: {'opted_in': _allow},
+      ),
+    );
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(

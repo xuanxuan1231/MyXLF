@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../services/parsers.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_pull_to_refresh.dart';
@@ -28,6 +31,7 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
   }
 
   Future<void> _load() async {
+    final stopwatch = Stopwatch()..start();
     setState(() {
       _loading = true;
       _error = null;
@@ -35,12 +39,30 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
     try {
       final html = await XlfClient.instance.fetchLoginHistoryHtml();
       final entries = Parsers.parseLoginHistory(html);
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.loginHistoryLoaded,
+          properties: {
+            'count': entries.length,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _entries = entries;
         _loading = false;
       });
     } catch (e) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.loginHistoryFailed,
+          properties: {
+            'error_kind': TelemetryService.errorKind(e),
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _error = e.toString();

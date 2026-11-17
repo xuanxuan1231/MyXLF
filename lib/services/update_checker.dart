@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
+import 'telemetry.dart';
 
 /// 更新检查异常（携带面向用户的提示文案）。
 class UpdateCheckException implements Exception {
@@ -91,7 +94,7 @@ class UpdateChecker {
   Future<UpdateInfo?> checkAutomatically() async {
     if (!await isAutoCheckEnabled()) return null;
     try {
-      return await check();
+      return await check(source: 'startup');
     } catch (_) {
       return null;
     }
@@ -101,7 +104,43 @@ class UpdateChecker {
   ///
   /// GitHub 的 `/releases/latest` 会跳过预发布（prerelease）与草稿（draft），
   /// 因此无需额外过滤。仓库尚无任何 Release 时抛出 [UpdateCheckException]。
-  Future<UpdateInfo> check() async {
+  Future<UpdateInfo> check({String source = 'manual'}) async {
+    final stopwatch = Stopwatch()..start();
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.updateCheckStarted,
+        properties: {'source': source},
+      ),
+    );
+    try {
+      final info = await _check();
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.updateCheckCompleted,
+          properties: {
+            'source': source,
+            'update_available': info.isUpdateAvailable,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
+      return info;
+    } catch (e) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.updateCheckFailed,
+          properties: {
+            'source': source,
+            'error_kind': TelemetryService.errorKind(e),
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  Future<UpdateInfo> _check() async {
     final current = await currentVersion();
 
     final Response<dynamic> resp;

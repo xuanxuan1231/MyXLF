@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:posthog_flutter/posthog_flutter.dart';
 
 import 'screens/bootstrap_screen.dart';
 import 'services/enhancement_settings.dart';
@@ -76,7 +77,7 @@ Future<void> _checkUpdatesOnStartup() async {
   if (info == null || !info.isUpdateAvailable) return;
   final context = appNavigatorKey.currentContext;
   if (context == null || !context.mounted) return;
-  await showUpdateDialog(context, info);
+  await showUpdateDialog(context, info, source: 'startup');
 }
 
 class XlfApp extends StatelessWidget {
@@ -95,8 +96,13 @@ class XlfApp extends StatelessWidget {
       themeMode: ThemeMode.system,
       // 桌面端支持鼠标拖动滚动（列表、横向图表）。
       scrollBehavior: const AppScrollBehavior(),
-      // 页面浏览上报（$screen 事件，用于参与度统计）。
-      navigatorObservers: [TelemetryScreenObserver()],
+      // 页面浏览（$screen）用自有观察者去重；PosthogObserver 只维护问卷
+      // 所需的导航上下文，routeFilter 始终返回 false，避免重复上报页面。
+      navigatorObservers: [
+        TelemetryScreenObserver(),
+        if (TelemetryService.instance.isConfigured)
+          PosthogObserver(routeFilter: (_) => false),
+      ],
       home: const BootstrapScreen(),
     );
   }

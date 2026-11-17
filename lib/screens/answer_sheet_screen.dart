@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:material_ui/material_ui.dart';
@@ -6,6 +7,7 @@ import 'package:m3e_core/m3e_core.dart';
 import '../models/models.dart';
 import '../services/image_actions.dart';
 import '../services/image_store.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_pull_to_refresh.dart';
@@ -36,6 +38,9 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
   /// 正在分享 / 保存的图片地址，避免重复操作。
   String? _busyUrl;
 
+  /// 是否已完成过一次加载，用于区分首次进入与刷新 / 重试。
+  bool _firstLoad = true;
+
   @override
   void initState() {
     super.initState();
@@ -43,18 +48,41 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
   }
 
   Future<void> _load() async {
+    final stopwatch = Stopwatch()..start();
+    final isRefresh = !_firstLoad;
+    _firstLoad = false;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final urls = await XlfClient.instance.fetchAnswerSheetImages(widget.form);
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.answerSheetLoaded,
+          properties: {
+            'page_count': urls.length,
+            'is_refresh': isRefresh,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _urls = urls;
         _loading = false;
       });
     } catch (e) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.answerSheetLoadFailed,
+          properties: {
+            'error_kind': TelemetryService.errorKind(e),
+            'is_refresh': isRefresh,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _error = e.toString();
@@ -71,6 +99,12 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
   }
 
   void _openViewer(int index) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.answerSheetImageOpened,
+        properties: {'page': index + 1, 'page_count': _urls.length},
+      ),
+    );
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ImageViewerScreen(
@@ -92,6 +126,7 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
   Future<void> _runPageAction(
     String url,
     int index,
+    String event,
     Future<void> Function(Uint8List bytes, String fileName) action,
   ) async {
     if (_busyUrl != null) return;
@@ -100,43 +135,92 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
       final bytes = await ImageStore.load(url);
       await action(bytes, _fileName(index));
     } catch (e) {
+      unawaited(
+        TelemetryService.instance.capture(
+          event,
+          properties: {
+            'success': false,
+            'page': index + 1,
+            'error_kind': TelemetryService.errorKind(e),
+          },
+        ),
+      );
       _showMessage('操作失败：$e');
     } finally {
       if (mounted) setState(() => _busyUrl = null);
     }
   }
 
+  void _reportPageAction(
+    String event,
+    int index,
+    String target, {
+    bool success = true,
+  }) {
+    unawaited(
+      TelemetryService.instance.capture(
+        event,
+        properties: {
+          'success': success,
+          'page': index + 1,
+          'target': target,
+        },
+      ),
+    );
+  }
+
   Future<void> _share(String url, int index) {
-    return _runPageAction(url, index, (bytes, fileName) async {
-      final outcome = await ImageActions.shareImage(
-        bytes,
-        fileName: fileName,
-        text: '${widget.title} · 第 ${index + 1} 页',
-      );
-      switch (outcome.target) {
-        case ShareTarget.download:
-          _showMessage('已下载图片，请在浏览器下载内容中查看');
-        case ShareTarget.file:
-          _showMessage('当前平台不支持直接分享，已保存到 ${outcome.path}');
-        case ShareTarget.shared:
-          break;
-      }
-    });
+    return _runPageAction(
+      url,
+      index,
+      TelemetryEvents.answerSheetShared,
+      (bytes, fileName) async {
+        final outcome = await ImageActions.shareImage(
+          bytes,
+          fileName: fileName,
+          text: '${widget.title} · 第 ${index + 1} 页',
+        );
+        _reportPageAction(
+          TelemetryEvents.answerSheetShared,
+          index,
+          outcome.target.name,
+        );
+        switch (outcome.target) {
+          case ShareTarget.download:
+            _showMessage('已下载图片，请在浏览器下载内容中查看');
+          case ShareTarget.file:
+            _showMessage('当前平台不支持直接分享，已保存到 ${outcome.path}');
+          case ShareTarget.shared:
+            break;
+        }
+      },
+    );
   }
 
   Future<void> _save(String url, int index) {
-    return _runPageAction(url, index, (bytes, fileName) async {
-      final outcome = await ImageActions.saveToGallery(
-        bytes,
-        fileName: fileName,
-      );
-      _showMessage(switch (outcome.target) {
-        SaveTarget.gallery => '已保存到相册',
-        SaveTarget.file => '已保存到 ${outcome.path}',
-        SaveTarget.download => '已下载图片',
-        SaveTarget.permissionDenied => '没有相册权限，请在系统设置中开启后重试',
-      });
-    });
+    return _runPageAction(
+      url,
+      index,
+      TelemetryEvents.answerSheetSaved,
+      (bytes, fileName) async {
+        final outcome = await ImageActions.saveToGallery(
+          bytes,
+          fileName: fileName,
+        );
+        _reportPageAction(
+          TelemetryEvents.answerSheetSaved,
+          index,
+          outcome.target.name,
+          success: outcome.target != SaveTarget.permissionDenied,
+        );
+        _showMessage(switch (outcome.target) {
+          SaveTarget.gallery => '已保存到相册',
+          SaveTarget.file => '已保存到 ${outcome.path}',
+          SaveTarget.download => '已下载图片',
+          SaveTarget.permissionDenied => '没有相册权限，请在系统设置中开启后重试',
+        });
+      },
+    );
   }
 
   @override

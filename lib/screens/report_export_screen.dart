@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -9,6 +10,7 @@ import '../models/models.dart';
 import '../services/enhancement_settings.dart';
 import '../services/export_preferences.dart';
 import '../services/image_actions.dart';
+import '../services/telemetry.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_top_bar.dart';
@@ -44,6 +46,12 @@ class _ReportExportScreenState extends State<ReportExportScreen> {
 
   Future<void> _setPrivacy(bool value) async {
     setState(() => _privacyMode = value);
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.exportPrivacyChanged,
+        properties: {'enabled': value},
+      ),
+    );
     await ExportPreferences.instance.setPrivacyMode(value);
   }
 
@@ -62,6 +70,7 @@ class _ReportExportScreenState extends State<ReportExportScreen> {
 
   Future<void> _share() async {
     if (_busy) return;
+    final stopwatch = Stopwatch()..start();
     setState(() => _busy = true);
     try {
       final bytes = await _capture();
@@ -70,6 +79,16 @@ class _ReportExportScreenState extends State<ReportExportScreen> {
         bytes,
         fileName: _fileName,
         text: 'MyXLF 成绩单',
+      );
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.exportShared,
+          properties: {
+            'target': outcome.target.name,
+            'privacy_mode': _privacyMode,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
       );
       if (!mounted) return;
       switch (outcome.target) {
@@ -81,6 +100,7 @@ class _ReportExportScreenState extends State<ReportExportScreen> {
           _showSnack('已开始下载成绩单');
       }
     } catch (e) {
+      _reportExportFailure('share', e, stopwatch);
       if (!mounted) return;
       _showSnack('分享失败：$e');
     } finally {
@@ -90,6 +110,7 @@ class _ReportExportScreenState extends State<ReportExportScreen> {
 
   Future<void> _save() async {
     if (_busy) return;
+    final stopwatch = Stopwatch()..start();
     setState(() => _busy = true);
     try {
       final bytes = await _capture();
@@ -97,6 +118,19 @@ class _ReportExportScreenState extends State<ReportExportScreen> {
       final outcome = await ImageActions.saveToGallery(
         bytes,
         fileName: _fileName,
+      );
+      final denied = outcome.target == SaveTarget.permissionDenied;
+      unawaited(
+        TelemetryService.instance.capture(
+          denied ? TelemetryEvents.exportFailed : TelemetryEvents.exportSaved,
+          properties: {
+            'target': outcome.target.name,
+            if (denied) 'action': 'save',
+            if (denied) 'reason': 'permission_denied',
+            'privacy_mode': _privacyMode,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
       );
       if (!mounted) return;
       switch (outcome.target) {
@@ -110,11 +144,31 @@ class _ReportExportScreenState extends State<ReportExportScreen> {
           _showSnack('没有相册写入权限，请授权后重试');
       }
     } catch (e) {
+      _reportExportFailure('save', e, stopwatch);
       if (!mounted) return;
       _showSnack('保存失败：$e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// 导出失败：只上报动作、错误类别与耗时，不上报错误文案。
+  void _reportExportFailure(
+    String action,
+    Object error,
+    Stopwatch stopwatch,
+  ) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.exportFailed,
+        properties: {
+          'action': action,
+          'error_kind': TelemetryService.errorKind(error),
+          'privacy_mode': _privacyMode,
+          'duration_ms': stopwatch.elapsedMilliseconds,
+        },
+      ),
+    );
   }
 
   String get _fileName {

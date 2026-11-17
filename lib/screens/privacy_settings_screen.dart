@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -76,7 +78,27 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
         mode: LaunchMode.externalApplication,
       );
       if (!ok) throw Exception();
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.externalLinkOpened,
+          properties: const {
+            'link': 'posthog_privacy',
+            'source': 'privacy_settings',
+            'success': true,
+          },
+        ),
+      );
     } catch (_) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.externalLinkOpened,
+          properties: const {
+            'link': 'posthog_privacy',
+            'source': 'privacy_settings',
+            'success': false,
+          },
+        ),
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
@@ -31,6 +33,7 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
   }
 
   Future<void> _init() async {
+    final stopwatch = Stopwatch()..start();
     if (mounted) {
       setState(() {
         _connectionError = null;
@@ -49,24 +52,28 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
     try {
       accounts = await AccountStore.instance.load();
     } catch (e) {
+      _reportAutoLoginFailure('account_store', stopwatch);
       if (!mounted) return;
       _goto(LoginScreen(initialError: '读取账号失败：$e'), 'Login');
       return;
     }
     if (!mounted) return;
     if (accounts.isEmpty) {
+      _reportAutoLoginFailure('no_accounts', stopwatch);
       _goto(const LoginScreen(), 'Login');
       return;
     }
     final defaultAccount = await AccountStore.instance.getDefault();
     if (!mounted) return;
     if (defaultAccount == null) {
+      _reportAutoLoginFailure('no_default_account', stopwatch);
       _goto(const LoginScreen(), 'Login');
       return;
     }
     if (defaultAccount.password.isEmpty) {
       // 安全存储不可用或数据被清理，无法自动登录；明确告知用户而不是
       // 用空密码去请求服务器（那样只会得到误导性的「密码错误」）。
+      _reportAutoLoginFailure('password_unavailable', stopwatch);
       final storageError = AccountStore.instance.consumeLastError();
       _goto(
         LoginScreen(
@@ -82,14 +89,31 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
         defaultAccount.username,
         defaultAccount.password,
       );
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.autoLoginSucceeded,
+          properties: {
+            'account_count': accounts.length,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
+      unawaited(
+        TelemetryService.instance.addStep(
+          'Auto login succeeded',
+          properties: const {'method': 'auto'},
+        ),
+      );
       if (!mounted) return;
       await enterShell(context, defaultAccount, result);
     } on XlfAccountLockedException catch (e) {
+      _reportAutoLoginFailure('account_locked', stopwatch);
       if (!mounted) return;
       setState(() {
         _lockMessage = e.message;
       });
     } on XlfAuthException catch (e) {
+      _reportAutoLoginFailure('auth', stopwatch);
       if (!mounted) return;
       _goto(
         LoginScreen(
@@ -99,16 +123,31 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
         'Login',
       );
     } on XlfException catch (e) {
+      _reportAutoLoginFailure(TelemetryService.errorKind(e), stopwatch);
       if (!mounted) return;
       setState(() {
         _connectionError = e.message;
       });
     } catch (e) {
+      _reportAutoLoginFailure(TelemetryService.errorKind(e), stopwatch);
       if (!mounted) return;
       setState(() {
         _connectionError = e.toString();
       });
     }
+  }
+
+  /// 自动登录失败：只上报稳定原因与耗时，不包含账号或错误文案。
+  void _reportAutoLoginFailure(String reason, Stopwatch stopwatch) {
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.autoLoginFailed,
+        properties: {
+          'reason': reason,
+          'duration_ms': stopwatch.elapsedMilliseconds,
+        },
+      ),
+    );
   }
 
   void _goto(Widget screen, String routeName) {

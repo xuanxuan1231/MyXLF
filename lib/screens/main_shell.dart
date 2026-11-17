@@ -30,6 +30,7 @@ Future<void> enterShell(
   );
   // 清除上一轮遗留的错误，再保存账号；安全存储失败不应阻断本次登录。
   AccountStore.instance.consumeLastError();
+  final stopwatch = Stopwatch()..start();
   Account saved;
   String? saveError;
   try {
@@ -39,6 +40,15 @@ Future<void> enterShell(
     saveError = '账号信息保存失败：$e';
   }
   saveError ??= AccountStore.instance.consumeLastError();
+  unawaited(
+    TelemetryService.instance.capture(
+      TelemetryEvents.accountSaved,
+      properties: {
+        'storage_error': saveError != null,
+        'duration_ms': stopwatch.elapsedMilliseconds,
+      },
+    ),
+  );
   if (!context.mounted) return;
   if (saveError != null) {
     ScaffoldMessenger.of(context).showSnackBar(

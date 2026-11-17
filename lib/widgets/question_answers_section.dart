@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/telemetry.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import 'typical_answer_preview.dart';
@@ -103,7 +106,20 @@ class _QuestionAnswersSectionState extends State<QuestionAnswersSection>
       selectedColor: scheme.primaryContainer,
       selectedRadius: 20,
       isSelected: (index) => filters[index] == _filter,
-      onTap: (index) => setState(() => _filter = filters[index]),
+      onTap: (index) {
+        final filter = filters[index];
+        setState(() => _filter = filter);
+        unawaited(
+          TelemetryService.instance.capture(
+            TelemetryEvents.questionFilterChanged,
+            properties: {
+              'filter': filter.name,
+              'count': _countOf(filter),
+              'total': widget.questions.length,
+            },
+          ),
+        );
+      },
       isEnabled: (index) => _countOf(filters[index]) > 0,
       semanticLabelBuilder: (index) {
         final filter = filters[index];
@@ -200,6 +216,23 @@ class _QuestionAnswersSectionState extends State<QuestionAnswersSection>
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final status = _questionStatus(context, question);
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.questionDetailsOpened,
+        properties: {
+          'status': question.isFullMark
+              ? 'full'
+              : question.isZero
+              ? 'zero'
+              : 'partial',
+          'is_objective':
+              question.correctAnswer != null &&
+              question.correctAnswer!.isNotEmpty,
+          'has_knowledge': _hasKnowledge(question),
+          'has_typical_answer': widget.answerSheetForm != null,
+        },
+      ),
+    );
 
     showM3EModalBottomSheet<void>(
       context: context,

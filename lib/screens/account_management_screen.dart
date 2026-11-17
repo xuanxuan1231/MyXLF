@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../services/account_store.dart';
+import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_top_bar.dart';
@@ -38,7 +41,17 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
   }
 
   Future<void> _refresh() async {
+    final stopwatch = Stopwatch()..start();
     final accounts = await AccountStore.instance.load();
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.accountListLoaded,
+        properties: {
+          'count': accounts.length,
+          'duration_ms': stopwatch.elapsedMilliseconds,
+        },
+      ),
+    );
     if (!mounted) return;
     setState(() {
       _accounts = accounts;
@@ -61,6 +74,12 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
   Future<void> _switchTo(Account account) async {
     final scaffold = ScaffoldMessenger.of(context);
     if (account.password.isEmpty) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.accountSwitchFailed,
+          properties: const {'reason': 'password_unavailable'},
+        ),
+      );
       scaffold.showSnackBar(
         SnackBar(
           content: Text('无法读取「${account.username}」保存的密码，请重新添加该账号'),
@@ -69,6 +88,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       );
       return;
     }
+    final stopwatch = Stopwatch()..start();
     // 加载框用对话框自身的 context 关闭，避免用户用返回键关掉加载框后，
     // 这里再去 pop 下层页面（会把账户页甚至主界面一起弹掉）。
     final loadingContextKey = GlobalKey();
@@ -106,6 +126,15 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       AccountStore.instance.consumeLastError();
       await AccountStore.instance.addOrUpdate(fresh);
       final storageError = AccountStore.instance.consumeLastError();
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.accountSwitched,
+          properties: {
+            'storage_error': storageError != null,
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       closeLoading(); // 关闭加载框
       if (storageError != null) {
@@ -120,10 +149,28 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       if (!mounted) return;
       Navigator.of(context).pop(); // 返回主界面
     } on XlfAccountLockedException catch (e) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.accountSwitchFailed,
+          properties: {
+            'reason': 'account_locked',
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       if (!mounted) return;
       closeLoading();
       await showAccountLockedDialog(e.message);
     } catch (e) {
+      unawaited(
+        TelemetryService.instance.capture(
+          TelemetryEvents.accountSwitchFailed,
+          properties: {
+            'reason': TelemetryService.errorKind(e),
+            'duration_ms': stopwatch.elapsedMilliseconds,
+          },
+        ),
+      );
       // 凭据失效等情况：拒绝切换，停留在本页，当前账号与会话不受影响。
       if (!mounted) return;
       closeLoading();
@@ -138,6 +185,9 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
 
   Future<void> _setDefault(Account account) async {
     await AccountStore.instance.setDefault(account.username);
+    unawaited(
+      TelemetryService.instance.capture(TelemetryEvents.defaultAccountChanged),
+    );
     if (!mounted) return;
     widget.onDefaultChanged?.call(account.username);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -178,6 +228,12 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
     );
     if (confirmed != true) return;
     await AccountStore.instance.remove(account.username);
+    unawaited(
+      TelemetryService.instance.capture(
+        TelemetryEvents.accountRemoved,
+        properties: {'remaining_accounts': _accounts.length - 1},
+      ),
+    );
     final defaultAccount = await AccountStore.instance.getDefault();
     if (!mounted) return;
     if (defaultAccount != null) {
