@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:gal/gal.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -54,7 +55,9 @@ class ImageActions {
     }
 
     final dir = await getTemporaryDirectory();
-    final path = '${dir.path}/$fileName.${_extensionOf(bytes)}';
+    // Windows 的系统分享需要标准的反斜杠路径；直接拼接 `/` 时
+    // StorageFile.GetFileFromPathAsync 会解析失败，导致只分享文字。
+    final path = p.join(dir.path, '$fileName.${_extensionOf(bytes)}');
     await File(path).writeAsBytes(bytes, flush: true);
     await Share.shareXFiles(
       [XFile(path, mimeType: _mimeTypeOf(bytes))],
@@ -70,7 +73,7 @@ class ImageActions {
   ) async {
     final dir =
         await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
-    final path = '${dir.path}/$fileName.${_extensionOf(bytes)}';
+    final path = p.join(dir.path, '$fileName.${_extensionOf(bytes)}');
     await File(path).writeAsBytes(bytes, flush: true);
     return path;
   }
