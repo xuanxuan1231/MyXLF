@@ -3,6 +3,7 @@ import 'package:m3e_core/m3e_core.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:xlf/models/models.dart';
+import 'package:xlf/screens/home_screen.dart';
 import 'package:xlf/screens/main_shell.dart';
 import 'package:xlf/services/xlf_client.dart';
 import 'package:xlf/theme/responsive.dart';
@@ -60,7 +61,10 @@ void main() {
     // `floatingNavigationClearance` 预留足够滚动的底部留白。如果外壳把
     // 底栏高度消费成 body 的 Padding，页面就会浮不起来、最后一行也会
     // 在滚动到底时被底栏挡住。
-    final page = find.byType(NestedScrollView).first;
+    final page = find.descendant(
+      of: find.byType(HomeScreen),
+      matching: find.byType(CustomScrollView),
+    );
     final pageContext = tester.element(page);
     final toolbarTop = tester
         .getRect(find.byType(M3EHorizontalFloatingToolbar))
