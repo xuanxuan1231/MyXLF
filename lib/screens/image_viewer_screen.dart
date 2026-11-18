@@ -177,7 +177,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         appBar: AppBar(
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
-          centerTitle: true,
+          // 全局 AppBarTheme 默认居中，这里与其它页面统一改为左对齐。
+          centerTitle: false,
           title: Text(widget.title),
           actions: [
             if (_busy)
