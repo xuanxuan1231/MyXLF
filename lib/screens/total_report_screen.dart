@@ -2,12 +2,17 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/enhancement_settings.dart';
+import '../services/offline_cache.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
-import '../widgets/app_top_bar.dart';
 import '../widgets/chart_image.dart';
+import '../widgets/enhancement_notice.dart';
+import '../widgets/offline_notice.dart';
+import '../widgets/report_page_scaffold.dart';
 import '../widgets/report_split_layout.dart';
+import 'report_export_screen.dart';
 import 'subject_report_screen.dart';
 
 /// 总分分析报告（成绩概览 + 学习表现 + 成绩图表）。
@@ -30,10 +35,25 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
   bool _loading = true;
   String? _error;
 
+  /// 当前内容是否来自离线缓存，以及缓存时间。
+  bool _fromCache = false;
+  DateTime? _cachedAt;
+
   @override
   void initState() {
     super.initState();
+    EnhancementSettings.instance.addListener(_onEnhancementChanged);
     _load();
+  }
+
+  @override
+  void dispose() {
+    EnhancementSettings.instance.removeListener(_onEnhancementChanged);
+    super.dispose();
+  }
+
+  void _onEnhancementChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _load() async {
@@ -41,15 +61,40 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
       _loading = true;
       _error = null;
     });
+    final cacheKey = OfflineCache.instance.totalReportKey(
+      username: XlfClient.instance.currentUsername,
+      testId: widget.testId,
+    );
     try {
       final html = await XlfClient.instance.fetchTotalReportHtml(widget.testId);
+      await OfflineCache.instance.write(cacheKey, html);
       final report = Parsers.parseTotalReport(html);
       if (!mounted) return;
       setState(() {
         _report = report;
         _loading = false;
+        _fromCache = false;
+        _cachedAt = null;
       });
     } catch (e) {
+      // 网络失败时优先展示最近一次成功缓存的报告，并明确标注离线状态。
+      final cached = await OfflineCache.instance.read(cacheKey);
+      if (cached != null) {
+        try {
+          final report = Parsers.parseTotalReport(cached.html);
+          if (!mounted) return;
+          setState(() {
+            _report = report;
+            _loading = false;
+            _error = null;
+            _fromCache = true;
+            _cachedAt = cached.savedAt;
+          });
+          return;
+        } catch (_) {
+          // 缓存内容无法解析时按真实网络错误处理。
+        }
+      }
       if (!mounted) return;
       setState(() {
         _error = e.toString();
@@ -67,27 +112,36 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     );
   }
 
+  void _openExport(TotalReport report) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ReportExportScreen(report: report),
+        settings: const RouteSettings(name: 'Report Export'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) => [
-          AppTopBar(
-            title: widget.examName.isEmpty ? '成绩分析' : widget.examName,
-            subtitle: widget.examName.isEmpty ? null : '成绩分析',
-            actions: [
-              // 桌面端没有下拉刷新手势，提供显式刷新入口。
-              if (context.isDesktopPlatform)
-                IconButton(
-                  tooltip: '刷新成绩分析',
-                  onPressed: _loading ? null : _load,
-                  icon: const Icon(Icons.refresh),
-                ),
-            ],
+    return ReportPageScaffold(
+      title: widget.examName.isEmpty ? '成绩分析' : widget.examName,
+      subtitle: widget.examName.isEmpty ? null : '成绩分析',
+      actions: [
+        // 桌面端没有下拉刷新手势，提供显式刷新入口。
+        if (context.isDesktopPlatform)
+          IconButton(
+            tooltip: '刷新成绩分析',
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh),
           ),
-        ],
-        body: _buildBody(),
-      ),
+        if (_report != null)
+          IconButton(
+            tooltip: '导出 / 分享成绩单',
+            onPressed: () => _openExport(_report!),
+            icon: const Icon(Icons.ios_share_outlined),
+          ),
+      ],
+      body: _buildBody(),
     );
   }
 
@@ -134,7 +188,11 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     // 宽屏：左栏固定显示总分概览，右栏独立滚动学习表现与图表；
     // 左栏科目过多时可以单独滚动，不会影响右栏。
     return ReportSplitLayout(
-      leftSections: [_buildOverview(report)],
+      leftSections: [
+        if (_fromCache && _cachedAt != null)
+          OfflineNotice(savedAt: _cachedAt!, onRetry: _load),
+        _buildOverview(report),
+      ],
       rightSections: rightSections,
       leftWidth: 440,
       onRefresh: _load,
@@ -178,50 +236,175 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
 
   Widget _buildOverview(TotalReport report) {
     final score = report.scoreReport;
-    final links = report.subjects;
+    final subjectRows = _subjectRows(report, score);
 
-    // 有各科入口时以入口为准（可跳转分析页）；否则回退到成绩单科目（仅展示）。
-    final hasLinks = links.isNotEmpty;
-    final subjectCount = hasLinks ? links.length : score.subjects.length;
+    // 增强功能只有真的改变了显示值时才提示；没有效果时不打扰用户。
+    final showEnhancementNotice = _shouldShowEnhancementNotice(score);
+    final noticeOffset = showEnhancementNotice ? 1 : 0;
 
     return M3ESegmentedList(
-      itemCount: 1 + subjectCount,
+      itemCount: 1 + noticeOffset + subjectRows.length,
       padding: EdgeInsets.zero,
       gap: 2,
       outerRadius: 24,
       onTap: (i) {
-        if (!hasLinks || i == 0) return;
-        _openSubject(links[i - 1]);
+        if (i <= noticeOffset) return;
+        final subject = subjectRows[i - 1 - noticeOffset];
+        final link = report.linkForSubject(subject.name);
+        if (link != null) _openSubject(link);
       },
       itemBuilder: (_, i) {
         if (i == 0) return _buildHero(report);
-        if (hasLinks) {
-          final link = links[i - 1];
-          return _scoreItem(
-            link.subjectName,
-            link.score,
-            link.scoreTotal,
-            showChevron: true,
-            levelName:
-                _subjectLevelName(report, link.subjectName) ?? link.levelName,
-            maxScore: score.maxScores?.valueFor(link.subjectName),
-            averageScore: score.averageScores?.valueFor(link.subjectName),
-            classRank: score.classRanks?.valueFor(link.subjectName),
-            gradeRank: score.gradeRanks?.valueFor(link.subjectName),
-          );
+        if (showEnhancementNotice && i == 1) {
+          return _buildEnhancementNotice(score);
         }
-        final subject = score.subjects[i - 1];
-        return _scoreItem(
-          subject.name,
-          subject.score,
-          subject.fullScore,
-          levelName: _subjectLevelName(report, subject.name),
-          maxScore: score.maxScores?.valueFor(subject.name),
-          averageScore: score.averageScores?.valueFor(subject.name),
-          classRank: score.classRanks?.valueFor(subject.name),
-          gradeRank: score.gradeRanks?.valueFor(subject.name),
+        final subject = subjectRows[i - 1 - noticeOffset];
+        return _buildSubjectRow(report, score, subject);
+      },
+    );
+  }
+
+  /// 成绩单网格为全集，科目入口只决定是否可跳转。
+  ///
+  /// 网格为空时退回入口数据，保证旧报告或特殊页面仍能展示。
+  List<SubjectScore> _subjectRows(TotalReport report, ScoreReport score) {
+    if (score.subjects.isNotEmpty) return score.subjects;
+    return [
+      for (final link in report.subjects)
+        SubjectScore(
+          name: link.subjectName,
+          fullScore: link.scoreTotal,
+          score: link.score,
+        ),
+    ];
+  }
+
+  Widget _buildSubjectRow(
+    TotalReport report,
+    ScoreReport score,
+    SubjectScore subject,
+  ) {
+    final link = report.linkForSubject(subject.name);
+    return _scoreItem(
+      subject.name,
+      subject.participated ? subject.score : null,
+      subject.participated ? subject.fullScore : null,
+      showChevron: link != null,
+      levelName: _subjectLevelName(report, subject.name) ?? link?.levelName,
+      maxScore: score.maxScores?.valueFor(subject.name),
+      averageScore: score.averageScores?.valueFor(subject.name),
+      classRank: score.classRanks?.valueFor(subject.name),
+      gradeRank: score.gradeRanks?.valueFor(subject.name),
+      absent: !subject.participated,
+      tags: _subjectTags(score, subject),
+    );
+  }
+
+  /// 提分优先级始终启用，但不改变平台科目顺序，只用标签强调需要关注的科目。
+  ///
+  /// 只有一科参加考试时，「失分最多 / 失分率最高」必然落在这一科上，没有
+  /// 比较意义，因此不展示失分相关标签；平均分比较仍然保留。
+  List<_SubjectTag> _subjectTags(ScoreReport score, SubjectScore subject) {
+    if (!subject.participated) return const [];
+    final tags = <_SubjectTag>[];
+    final hasComparison = score.participatedSubjectCount > 1;
+    if (hasComparison && identical(score.maxLostSubject, subject)) {
+      tags.add(const _SubjectTag('失分最多', _SubjectTagTone.error));
+    }
+    if (hasComparison && identical(score.maxLostRateSubject, subject)) {
+      tags.add(const _SubjectTag('失分率最高', _SubjectTagTone.tertiary));
+    }
+    final average = score.averageScores?.valueFor(subject.name);
+    if (average != null && subject.score < average - 0.5) {
+      tags.add(
+        _SubjectTag(
+          '低于平均 ${_fmtNum(average - subject.score)}',
+          _SubjectTagTone.secondary,
+        ),
+      );
+    }
+    return tags;
+  }
+
+  /// 是否展示「增强功能已应用」提示。
+  bool _shouldShowEnhancementNotice(ScoreReport score) {
+    return EnhancementSettings.instance.shouldShowNotice(
+      EnhancementSettings.actualTotalFullScore,
+      hasEffect: _enhancementHasEffect(score),
+      scope: widget.testId,
+    );
+  }
+
+  /// 当前增强功能是否真的会改变显示值。
+  bool _enhancementHasEffect(ScoreReport score) {
+    final actual = score.actualTotalFullScore;
+    if (actual == null) return false;
+    final displayed = score.totalFullScore;
+    if (displayed == null) return true;
+    return (actual - displayed).abs() > 0.001;
+  }
+
+  /// 当前应展示的总分满分。
+  ///
+  /// 增强功能开启时使用实考科目的满分之和；没有可用的实考科目数据时
+  /// 回退到平台显示值。
+  double? _effectiveTotalFullScore(ScoreReport score) {
+    final settings = EnhancementSettings.instance;
+    if (!settings.isEnabled(EnhancementSettings.actualTotalFullScore)) {
+      return score.totalFullScore;
+    }
+    return score.actualTotalFullScore ?? score.totalFullScore;
+  }
+
+  Widget _buildEnhancementNotice(ScoreReport score) {
+    final settings = EnhancementSettings.instance;
+    final feature = EnhancementSettings.actualTotalFullScore;
+    final actual = score.actualTotalFullScore;
+    final displayed = score.totalFullScore;
+    final count = score.participatedSubjectCount;
+    final String message;
+    if (displayed != null &&
+        actual != null &&
+        score.hasTotalFullScoreMismatch) {
+      message =
+          '平台显示总分满分是 ${_fmtNum(displayed)}。\n'
+          '然而，MyXLF 发现你实际只参加 $count 科考试，'
+          '因此按照满分之和 ${_fmtNum(actual)} 计算总分满分与得分率。';
+    } else if (actual != null && count > 0) {
+      message = 'MyXLF 已按实考 $count 科的满分之和 ${_fmtNum(actual)} 计算总分满分与得分率。';
+    } else {
+      message = 'MyXLF 已按实考科目的满分之和计算总分满分与得分率。';
+    }
+
+    return EnhancementNotice(
+      message: message,
+      onDismissOnce: () =>
+          settings.dismissNoticeOnce(feature, scope: widget.testId),
+      onHidePermanently: () async {
+        await settings.hideNoticePermanently(feature);
+        if (!mounted) return;
+        _showSnack('已永久关闭此提示，可在「账户 → 增强功能」中管理。');
+      },
+      onDisableFeature: () async {
+        await settings.setEnabled(feature, enabled: false);
+        if (!mounted) return;
+        _showSnack(
+          '已关闭增强功能，可在「账户 → 增强功能」中重新开启。',
+          onUndo: () => settings.setEnabled(feature, enabled: true),
         );
       },
+    );
+  }
+
+  void _showSnack(String message, {VoidCallback? onUndo}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        action: onUndo == null
+            ? null
+            : SnackBarAction(label: '撤销', onPressed: onUndo),
+      ),
     );
   }
 
@@ -229,8 +412,9 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final score = report.scoreReport;
-    final rate = (score.totalFullScore ?? 0) > 0 && score.totalScore != null
-        ? score.totalScore! / score.totalFullScore!
+    final fullScore = _effectiveTotalFullScore(score);
+    final rate = (fullScore ?? 0) > 0 && score.totalScore != null
+        ? score.totalScore! / fullScore!
         : null;
     // 平台提供时才追加：最高分 / 年级平均分 / 班级排名 / 年级排名。
     final totalMetrics = _metricSummary(
@@ -260,9 +444,9 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
                           _fmtNum(score.totalScore),
                           style: _heroScoreStyle(scheme),
                         ),
-                        if (score.totalFullScore != null)
+                        if (fullScore != null)
                           Text(
-                            ' / ${_fmtNum(score.totalFullScore)}',
+                            ' / ${_fmtNum(fullScore)}',
                             style: textTheme.titleMedium?.copyWith(
                               color: scheme.onSurfaceVariant,
                               fontWeight: FontWeight.w500,
@@ -347,11 +531,13 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     double? score,
     double? fullScore, {
     bool showChevron = false,
+    bool absent = false,
     String? levelName,
     double? maxScore,
     double? averageScore,
     double? classRank,
     double? gradeRank,
+    List<_SubjectTag> tags = const [],
   }) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
@@ -370,13 +556,36 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
           Row(
             children: [
               Expanded(
-                child: Row(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Flexible(child: Text(label, style: textTheme.titleSmall)),
-                    if (level != null) ...[
-                      const SizedBox(width: 6),
-                      _subjectLevelTag(level),
-                    ],
+                    Text(label, style: textTheme.titleSmall),
+                    if (level != null) _subjectLevelTag(level),
+                    if (absent)
+                      _subjectToneTag(
+                        '缺考',
+                        scheme.surfaceContainerHighest,
+                        scheme.onSurfaceVariant,
+                      ),
+                    for (final tag in tags)
+                      _subjectToneTag(
+                        tag.label,
+                        switch (tag.tone) {
+                          _SubjectTagTone.error => scheme.errorContainer,
+                          _SubjectTagTone.tertiary => scheme.tertiaryContainer,
+                          _SubjectTagTone.secondary =>
+                            scheme.secondaryContainer,
+                        },
+                        switch (tag.tone) {
+                          _SubjectTagTone.error => scheme.onErrorContainer,
+                          _SubjectTagTone.tertiary =>
+                            scheme.onTertiaryContainer,
+                          _SubjectTagTone.secondary =>
+                            scheme.onSecondaryContainer,
+                        },
+                      ),
                   ],
                 ),
               ),
@@ -387,7 +596,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
               ],
             ],
           ),
-          if (metrics != null) ...[
+          if (!absent && metrics != null) ...[
             const SizedBox(height: 3),
             Text(
               metrics,
@@ -397,6 +606,24 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _subjectToneTag(String label, Color background, Color foreground) {
+    final textTheme = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: textTheme.labelSmall?.copyWith(
+          color: foreground,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -813,4 +1040,13 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
         : value.toStringAsFixed(1);
     return '$text%';
   }
+}
+
+enum _SubjectTagTone { error, tertiary, secondary }
+
+class _SubjectTag {
+  const _SubjectTag(this.label, this.tone);
+
+  final String label;
+  final _SubjectTagTone tone;
 }

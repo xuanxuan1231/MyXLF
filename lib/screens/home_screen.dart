@@ -2,10 +2,13 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/offline_cache.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_pull_to_refresh.dart';
 import '../widgets/app_top_bar.dart';
+import '../widgets/offline_notice.dart';
 import 'total_report_screen.dart';
 
 /// 首页：考试列表 + 学年/学期筛选。
@@ -33,6 +36,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _testSemester;
   bool _loading = true;
   String? _error;
+  bool _fromCache = false;
+  DateTime? _cachedAt;
 
   @override
   void initState() {
@@ -45,6 +50,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _loading = true;
       _error = null;
     });
+    final cacheKey = OfflineCache.instance.homeKey(
+      username: widget.account.username,
+      schoolYearId: _schoolYearId,
+      testSemester: _testSemester,
+    );
     try {
       var html = await _fetch();
       var exams = Parsers.parseExamList(html);
@@ -58,6 +68,9 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       final filters = Parsers.parseFilters(html);
+      if (exams.isNotEmpty) {
+        await OfflineCache.instance.write(cacheKey, html);
+      }
       if (!mounted) return;
       setState(() {
         _exams = exams;
@@ -65,8 +78,33 @@ class _HomeScreenState extends State<HomeScreen> {
           _filters = filters;
         }
         _loading = false;
+        _fromCache = false;
+        _cachedAt = null;
       });
     } catch (e) {
+      // 网络不可用时回退到最近一次成功缓存的考试列表。
+      final cached = await OfflineCache.instance.read(cacheKey);
+      if (cached != null) {
+        try {
+          final exams = Parsers.parseExamList(cached.html);
+          final filters = Parsers.parseFilters(cached.html);
+          if (!mounted) return;
+          setState(() {
+            _exams = exams;
+            if (filters.schoolYears.isNotEmpty ||
+                filters.semesters.isNotEmpty) {
+              _filters = filters;
+            }
+            _loading = false;
+            _error = null;
+            _fromCache = true;
+            _cachedAt = cached.savedAt;
+          });
+          return;
+        } catch (_) {
+          // 缓存内容损坏时按真实网络错误处理。
+        }
+      }
       if (!mounted) return;
       setState(() {
         _error = e.toString();
@@ -154,6 +192,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
         body: Column(
           children: [
+            if (_fromCache && _cachedAt != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: ContentWidth(
+                  maxWidth: AppLayout.contentMaxWidth,
+                  child: OfflineNotice(savedAt: _cachedAt!, onRetry: _load),
+                ),
+              ),
             _buildFilterBar(),
             Expanded(child: _buildBody()),
           ],
@@ -220,7 +266,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return Padding(
           padding: centeredPadding(
             constraints.maxWidth,
-            maxWidth: 900,
+            maxWidth: AppLayout.contentMaxWidth,
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           ),
           child: content,
@@ -260,7 +306,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (_exams.isEmpty) {
       final scheme = Theme.of(context).colorScheme;
-      return M3EPullToRefreshIndicator(
+      return AppPullToRefresh(
         onRefresh: _load,
         child: LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
@@ -280,7 +326,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const Text('暂无考试记录'),
                     const SizedBox(height: 4),
                     Text(
-                      context.isDesktopPlatform ? '下拉刷新或点击右上角刷新重试' : '下拉刷新重试',
+                      context.isDesktopPlatform ? '点击右上角刷新重试' : '下拉刷新重试',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 12,
@@ -295,20 +341,23 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
-    return M3EPullToRefreshIndicator(
-      onRefresh: _load,
-      child: ContentWidth(
-        maxWidth: 900,
+    return LayoutBuilder(
+      builder: (context, constraints) => AppPullToRefresh(
+        onRefresh: _load,
         child: M3ESegmentedList.builder(
           itemCount: _exams.length,
           padding: EdgeInsets.zero,
           gap: 2,
           outerRadius: 24,
-          listPadding: EdgeInsets.fromLTRB(
-            16,
-            8,
-            16,
-            24 + context.floatingNavigationClearance,
+          listPadding: centeredPadding(
+            constraints.maxWidth,
+            maxWidth: AppLayout.contentMaxWidth,
+            padding: EdgeInsets.fromLTRB(
+              16,
+              8,
+              16,
+              24 + context.floatingNavigationClearance,
+            ),
           ),
           physics: const AlwaysScrollableScrollPhysics(),
           onTap: (i) => _openExam(_exams[i]),

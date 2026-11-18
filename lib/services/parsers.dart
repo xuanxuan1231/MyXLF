@@ -21,10 +21,12 @@ class Parsers {
     if (select == null) return const [];
     return select
         .querySelectorAll('option')
-        .map((o) => FilterOption(
-              label: o.text.trim(),
-              value: o.attributes['value'] ?? '',
-            ))
+        .map(
+          (o) => FilterOption(
+            label: o.text.trim(),
+            value: o.attributes['value'] ?? '',
+          ),
+        )
         .toList();
   }
 
@@ -52,13 +54,15 @@ class Parsers {
       final version = i < versions.length ? versions[i] : '';
       final date = i < dates.length ? dates[i] : '';
 
-      exams.add(Exam(
-        testId: testIds[i],
-        name: name,
-        date: date.isEmpty ? null : date,
-        subjects: _parseSubjects(subjectLabel),
-        reportVersion: _after(version, '报告版本：'),
-      ));
+      exams.add(
+        Exam(
+          testId: testIds[i],
+          name: name,
+          date: date.isEmpty ? null : date,
+          subjects: _parseSubjects(subjectLabel),
+          reportVersion: _after(version, '报告版本：'),
+        ),
+      );
     }
     return exams;
   }
@@ -67,10 +71,7 @@ class Parsers {
   static List<String> _parseSubjects(String label) {
     final v = _after(label, '科目：').trim();
     if (v.isEmpty) return const [];
-    return v
-        .split(RegExp(r'[、，,;；\s]+'))
-        .where((s) => s.isNotEmpty)
-        .toList();
+    return v.split(RegExp(r'[、，,;；\s]+')).where((s) => s.isNotEmpty).toList();
   }
 
   /// 解析网页版登录历史（`DemoAction.a?doShowLoginList` 的 #logtable 表格）。
@@ -81,16 +82,20 @@ class Parsers {
 
     final entries = <LoginLogEntry>[];
     for (final tr in table.querySelectorAll('tr')) {
-      final cells =
-          tr.querySelectorAll('td').map((td) => _clean(td.text)).toList();
+      final cells = tr
+          .querySelectorAll('td')
+          .map((td) => _clean(td.text))
+          .toList();
       if (cells.length < 4) continue;
       if (cells[0] == '序号') continue; // 表头
-      entries.add(LoginLogEntry(
-        sequence: int.tryParse(cells[0]),
-        time: cells[1],
-        status: cells[2],
-        ip: cells[3],
-      ));
+      entries.add(
+        LoginLogEntry(
+          sequence: int.tryParse(cells[0]),
+          time: cells[1],
+          status: cells[2],
+          ip: cells[3],
+        ),
+      );
     }
     return entries;
   }
@@ -115,29 +120,83 @@ class Parsers {
     // ---- 成绩单（科目 / 满分 / 你的成绩 / 最高分 / 平均分 / 排名） ----
     final grid = _parseScoreGrid(doc);
     final headerCells = grid.header;
-    var subjectNames =
-        headerCells.length > 2 ? headerCells.sublist(2) : <String>[];
-    subjectNames = subjectNames.where((s) => s.isNotEmpty).toList();
-    if (subjectNames.isEmpty) {
-      subjectNames = subjectLinks.map((l) => l.subjectName).toList();
+    final gridSubjectNames =
+        (headerCells.length > 2 ? headerCells.sublist(2) : const <String>[])
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
+
+    // 科目入口携带单科得分/满分，可能比成绩单网格更完整。这里把两边
+    // 合并成同一份科目全集：网格为主，网格缺失的字段用入口回填；网格
+    // 没有列出的入口科目也追加进来，避免页面漏掉有成绩的科目。
+    final linksByName = <String, SubjectLink>{};
+    for (final link in subjectLinks) {
+      final key = normalizeSubjectName(link.subjectName);
+      if (key.isEmpty) continue;
+      linksByName.putIfAbsent(key, () => link);
+    }
+
+    final allSubjectNames = <String>[...gridSubjectNames];
+    final seenSubjects = gridSubjectNames.map(normalizeSubjectName).toSet();
+    for (final link in subjectLinks) {
+      final key = normalizeSubjectName(link.subjectName);
+      if (key.isNotEmpty && seenSubjects.add(key)) {
+        allSubjectNames.add(link.subjectName.trim());
+      }
+    }
+
+    final gridIndexByName = <String, int>{};
+    for (var i = 0; i < gridSubjectNames.length; i++) {
+      gridIndexByName.putIfAbsent(
+        normalizeSubjectName(gridSubjectNames[i]),
+        () => i,
+      );
     }
 
     final fullCells = grid.rows['满分'] ?? const <String>[];
     final scoreCells =
         grid.rows['你的成绩'] ?? grid.rows['我的成绩'] ?? const <String>[];
-    final fullValues =
-        fullCells.length > 1 ? fullCells.sublist(1) : const <String>[];
-    final scoreValues =
-        scoreCells.length > 1 ? scoreCells.sublist(1) : const <String>[];
+    final fullValues = fullCells.length > 1
+        ? fullCells.sublist(1)
+        : const <String>[];
+    final scoreValues = scoreCells.length > 1
+        ? scoreCells.sublist(1)
+        : const <String>[];
 
     final subjects = <SubjectScore>[];
-    for (var i = 0; i < subjectNames.length; i++) {
-      subjects.add(SubjectScore(
-        name: subjectNames[i],
-        fullScore: _numAt(fullValues, i + 1),
-        score: _numAt(scoreValues, i + 1),
-      ));
+    for (final rawName in allSubjectNames) {
+      final name = rawName.trim();
+      final key = normalizeSubjectName(name);
+      final link = linksByName[key];
+      final gridIndex = gridIndexByName[key];
+      final gridFullScore = gridIndex == null
+          ? null
+          : _numAtOrNull(fullValues, gridIndex + 1);
+      final gridScore = gridIndex == null
+          ? null
+          : _numAtOrNull(scoreValues, gridIndex + 1);
+      final linkFullScore = link?.scoreTotal;
+      final fullScore = gridFullScore != null && gridFullScore > 0
+          ? gridFullScore
+          : (linkFullScore != null && linkFullScore > 0
+                ? linkFullScore
+                : (gridFullScore ?? 0));
+      final score = gridScore ?? link?.score;
+      final hasLink = link != null;
+      // 没有成绩单元格视为缺考；平台补 0 分时，再用科目入口判断。
+      final participated =
+          score != null && (linksByName.isEmpty || hasLink || score > 0);
+      subjects.add(
+        SubjectScore(
+          name: name,
+          fullScore: fullScore,
+          score: score ?? 0,
+          participated: participated,
+        ),
+      );
     }
+
+    final subjectNames = allSubjectNames;
 
     final scoreReport = ScoreReport(
       examName: examName,
@@ -259,9 +318,8 @@ class Parsers {
 
     final examName = _firstText(doc, '.text_2') ?? '';
     // 标题「... 同学数学卷面分析报告」。
-    final titleText = _firstText(doc, '.text_12') ??
-        _firstText(doc, '.text_13') ??
-        '';
+    final titleText =
+        _firstText(doc, '.text_12') ?? _firstText(doc, '.text_13') ?? '';
 
     // 「数学试卷满分120分，你的卷面成绩是87分。」
     var summary = '';
@@ -301,9 +359,9 @@ class Parsers {
       final headers = rows.isEmpty
           ? const <String>[]
           : rows.first
-              .querySelectorAll('td,th')
-              .map((cell) => _clean(cell.text).replaceAll(' ', ''))
-              .toList();
+                .querySelectorAll('td,th')
+                .map((cell) => _clean(cell.text).replaceAll(' ', ''))
+                .toList();
 
       // 优先按表头定位列，避免不同报告的列数或顺序变化导致错位。
       int columnOf(List<String> keys, int fallback) {
@@ -333,21 +391,26 @@ class Parsers {
             index >= 0 && index < cells.length ? cells[index] : '';
         if (cellAt(numberIndex).isEmpty) continue;
 
-        questions.add(QuestionScore(
-          number: cellAt(numberIndex),
-          type: cellAt(typeIndex),
-          fullScore: double.tryParse(cellAt(fullScoreIndex)) ?? 0,
-          correctAnswer:
-              cellAt(answerIndex).isEmpty ? null : cellAt(answerIndex),
-          answerStatus:
-              cellAt(statusIndex).isEmpty ? null : cellAt(statusIndex),
-          gradeMaxScore: _numAtOrNull(cells, maxIndex),
-          gradeAverageScore: _numAtOrNull(cells, averageIndex),
-          gradeScoreRate: _rateAt(cells, rateIndex),
-          knowledgePoint:
-              cellAt(knowledgeIndex).isEmpty ? null : cellAt(knowledgeIndex),
-          ability: cellAt(abilityIndex).isEmpty ? null : cellAt(abilityIndex),
-        ));
+        questions.add(
+          QuestionScore(
+            number: cellAt(numberIndex),
+            type: cellAt(typeIndex),
+            fullScore: double.tryParse(cellAt(fullScoreIndex)) ?? 0,
+            correctAnswer: cellAt(answerIndex).isEmpty
+                ? null
+                : cellAt(answerIndex),
+            answerStatus: cellAt(statusIndex).isEmpty
+                ? null
+                : cellAt(statusIndex),
+            gradeMaxScore: _numAtOrNull(cells, maxIndex),
+            gradeAverageScore: _numAtOrNull(cells, averageIndex),
+            gradeScoreRate: _rateAt(cells, rateIndex),
+            knowledgePoint: cellAt(knowledgeIndex).isEmpty
+                ? null
+                : cellAt(knowledgeIndex),
+            ability: cellAt(abilityIndex).isEmpty ? null : cellAt(abilityIndex),
+          ),
+        );
       }
     }
 
@@ -392,9 +455,7 @@ class Parsers {
   /// 中提取各难度档位的失分。
   static List<GainLossStat> parseGainLossStats(String? text) {
     if (text == null || text.isEmpty) return const [];
-    final regex = RegExp(
-      r'([\d.]+)\s*分属于\s*(较容易|难度中等|中等|难度较难|较难)',
-    );
+    final regex = RegExp(r'([\d.]+)\s*分属于\s*(较容易|难度中等|中等|难度较难|较难)');
     final stats = <GainLossStat>[];
     for (final match in regex.allMatches(text)) {
       final score = double.tryParse(match.group(1)!);
@@ -403,8 +464,8 @@ class Parsers {
       final label = raw.contains('容易')
           ? '较易'
           : raw.contains('中等')
-              ? '中等'
-              : '较难';
+          ? '中等'
+          : '较难';
       stats.add(GainLossStat(label: label, score: score));
     }
     return stats;
@@ -439,6 +500,113 @@ class Parsers {
         .map((e) => e.attributes['src'] ?? '')
         .where((s) => s.isNotEmpty)
         .toList();
+  }
+
+  /// 解析「典型答卷」页面：题号导航 + 当前小题的答卷图片。
+  ///
+  /// 平台每次只返回当前选中小题的图片；顶部导航列出全部小题及
+  /// 对应的 `itemId`，用于按题重新请求。
+  static TypicalAnswerSheet parseTypicalAnswerSheet(String html) {
+    final doc = html_parser.parse(html);
+    final items = _parseTypicalItems(doc);
+    final images = parseTypicalAnswerImages(html);
+    if (images.isEmpty) {
+      return TypicalAnswerSheet(items: items);
+    }
+
+    final byNumber = <String, List<TypicalAnswerImage>>{};
+    for (final image in images) {
+      if (image.number.isEmpty) continue;
+      byNumber
+          .putIfAbsent(normalizeQuestionNumber(image.number), () => [])
+          .add(image);
+    }
+
+    if (items.isEmpty) {
+      // 兼容没有题号导航的页面：直接按图片标签中的题号分组。
+      final grouped = <String, List<TypicalAnswerImage>>{};
+      for (final image in images) {
+        grouped
+            .putIfAbsent(normalizeQuestionNumber(image.number), () => [])
+            .add(image);
+      }
+      return TypicalAnswerSheet(
+        items: [
+          for (final entry in grouped.entries)
+            TypicalAnswerItem(
+              itemId: '',
+              number: entry.value.first.number.isEmpty
+                  ? entry.key
+                  : entry.value.first.number,
+              images: entry.value,
+            ),
+        ],
+      );
+    }
+
+    return TypicalAnswerSheet(
+      items: [
+        for (final item in items)
+          item.copyWith(
+            images: byNumber[normalizeQuestionNumber(item.number)] ?? const [],
+          ),
+      ],
+    );
+  }
+
+  /// 解析当前页面中的典型答卷图片及其评价（优秀答卷 / 典型错误等）。
+  static List<TypicalAnswerImage> parseTypicalAnswerImages(String html) {
+    final doc = html_parser.parse(html);
+    final images = <TypicalAnswerImage>[];
+    for (final li in doc.querySelectorAll('#img_ul li')) {
+      final img = li.querySelector('img');
+      if (img == null) continue;
+      final src = (img.attributes['src'] ?? '').trim();
+      if (src.isEmpty) continue;
+
+      var caption = '';
+      for (final div in li.querySelectorAll('div')) {
+        final style = div.attributes['style'] ?? '';
+        if (!style.contains('font-size: 16px')) continue;
+        caption = _clean(div.text);
+        break;
+      }
+      final parsed = _parseTypicalCaption(caption);
+      images.add(
+        TypicalAnswerImage(
+          url: _absUrl(src),
+          number: parsed.$1,
+          label: parsed.$2,
+        ),
+      );
+    }
+    return images;
+  }
+
+  static List<TypicalAnswerItem> _parseTypicalItems(Document doc) {
+    final items = <TypicalAnswerItem>[];
+    final seen = <String>{};
+    for (final a in doc.querySelectorAll('a[onclick]')) {
+      final onclick = a.attributes['onclick'] ?? '';
+      final match = RegExp(
+        r"showItemNoImgsJs\('([^']+)'\)",
+      ).firstMatch(onclick);
+      if (match == null) continue;
+      final itemId = match.group(1) ?? '';
+      final number = _clean(a.text);
+      if (itemId.isEmpty || number.isEmpty || !seen.add(itemId)) continue;
+      items.add(TypicalAnswerItem(itemId: itemId, number: number));
+    }
+    return items;
+  }
+
+  /// 把「第18.2题  优秀答卷  34分」拆成题号与评价。
+  static (String, String) _parseTypicalCaption(String caption) {
+    var text = _clean(caption.replaceAll('下载图片', ''));
+    if (text.isEmpty) return ('', '');
+    final match = RegExp(r'^第\s*([^\s]+?)\s*题\s*(.*)$').firstMatch(text);
+    if (match == null) return ('', text);
+    return (match.group(1) ?? '', (match.group(2) ?? '').trim());
   }
 
   /// 解析 subjectReport2(...) 调用中的参数。
@@ -515,7 +683,7 @@ class Parsers {
 
   /// 解析成绩单网格：表头 + 各指标行（保留空单元格，避免列错位）。
   static ({List<String> header, Map<String, List<String>> rows})
-      _parseScoreGrid(Document doc) {
+  _parseScoreGrid(Document doc) {
     var header = <String>[];
     final rows = <String, List<String>>{};
 
@@ -595,11 +763,6 @@ class Parsers {
     final m = RegExp(r'[&nbsp;\s]*([^\s&]+?)\s*同学').firstMatch(titleText);
     if (m != null) return m.group(1)!;
     return '';
-  }
-
-  static double _numAt(List<String> values, int index) {
-    if (index < 0 || index >= values.length) return 0;
-    return double.tryParse(values[index]) ?? 0;
   }
 
   static double? _numAtOrNull(List<String> values, int index) {

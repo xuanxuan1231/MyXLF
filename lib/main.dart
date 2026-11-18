@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'screens/bootstrap_screen.dart';
+import 'services/enhancement_settings.dart';
+import 'services/export_preferences.dart';
 import 'services/telemetry.dart';
 import 'services/update_checker.dart';
 import 'services/xlf_client.dart';
@@ -17,6 +19,10 @@ void main() {
       WidgetsFlutterBinding.ensureInitialized();
       // 遥测初始化：用户同意前不采集任何数据；失败时静默跳过。
       await TelemetryService.instance.init();
+      // 增强功能默认开启，先读取本地开关再构建界面，避免首帧闪烁。
+      await EnhancementSettings.instance.init();
+      // 导出隐私模式默认开启，读取用户上次的选择。
+      await ExportPreferences.instance.init();
 
       // 未捕获异常统一上报到 PostHog（崩溃 / 异常堆栈 / 稳定性统计）。
       FlutterError.onError = (details) {
@@ -87,7 +93,7 @@ class XlfApp extends StatelessWidget {
       darkTheme: AppTheme.dark,
       // 颜色模式跟随系统：系统切换亮色 / 暗色时自动重建主题。
       themeMode: ThemeMode.system,
-      // 桌面端支持鼠标拖动滚动（下拉刷新、横向图表）。
+      // 桌面端支持鼠标拖动滚动（列表、横向图表）。
       scrollBehavior: const AppScrollBehavior(),
       // 页面浏览上报（$screen 事件，用于参与度统计）。
       navigatorObservers: [TelemetryScreenObserver()],

@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../services/account_store.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_top_bar.dart';
 import '../widgets/session_recovery.dart';
 import 'login_screen.dart';
 
@@ -225,31 +226,38 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('账户管理'),
-        actions: [
-          if (context.isDesktopPlatform)
-            IconButton(
-              tooltip: '刷新账号列表',
-              onPressed: _loading ? null : _refresh,
-              icon: const Icon(Icons.refresh),
-            ),
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          AppTopBar(
+            title: '账户管理',
+            actions: [
+              if (context.isDesktopPlatform)
+                IconButton(
+                  tooltip: '刷新账号列表',
+                  onPressed: _loading ? null : _refresh,
+                  icon: const Icon(Icons.refresh),
+                ),
+            ],
+          ),
         ],
-      ),
-      body: _loading
-          ? const Center(child: M3ECircularProgressIndicator())
-          : ContentWidth(
-              maxWidth: 760,
-              child: M3ESegmentedList.builder(
-                itemCount: _accounts.length,
-                padding: EdgeInsets.zero,
-                gap: 2,
-                outerRadius: 24,
-                listPadding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                onTap: (i) => _switchTo(_accounts[i]),
-                itemBuilder: (_, i) => _buildItem(_accounts[i]),
+        body: _loading
+            ? const Center(child: M3ECircularProgressIndicator())
+            : LayoutBuilder(
+                builder: (context, constraints) => M3ESegmentedList.builder(
+                  itemCount: _accounts.length,
+                  padding: EdgeInsets.zero,
+                  gap: 2,
+                  outerRadius: 24,
+                  listPadding: centeredPadding(
+                    constraints.maxWidth,
+                    maxWidth: AppLayout.contentMaxWidth,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                  ),
+                  onTap: (i) => _switchTo(_accounts[i]),
+                  itemBuilder: (_, i) => _buildItem(_accounts[i]),
+                ),
               ),
-            ),
+      ),
       floatingActionButton: M3EExtendedFab(
         onPressed: _addAccount,
         icon: const Icon(Icons.add),

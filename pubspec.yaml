@@ -47,6 +47,7 @@ dependencies:
   # 答卷图片分享 / 保存到相册
   share_plus: ^10.1.4
   gal: ^2.3.2
+  path: ^1.9.0
   path_provider: ^2.1.4
   # 锁定 <1.8.0：material_ui 从 1.8.0 起公开导出 RoundedPolygon 等 M3 形状，
   # 与 m3e_core 1.1.4 自带的同名形状产生 Dart 符号歧义；1.7.x 无此冲突。

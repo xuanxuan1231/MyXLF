@@ -87,29 +87,29 @@ class Account {
 
   /// 序列化账号资料（不含密码，密码单独存入系统安全存储）。
   Map<String, dynamic> toJson() => {
-        'username': username,
-        'schoolName': schoolName,
-        'className': className,
-        'userId': userId,
-        'schoolId': schoolId,
-        'classId': classId,
-        'isDefault': isDefault,
-        'lastLoginAt': lastLoginAt,
-      };
+    'username': username,
+    'schoolName': schoolName,
+    'className': className,
+    'userId': userId,
+    'schoolId': schoolId,
+    'classId': classId,
+    'isDefault': isDefault,
+    'lastLoginAt': lastLoginAt,
+  };
 
   factory Account.fromJson(Map<String, dynamic> json) => Account(
-        username: json['username'] as String? ?? '',
-        // 兼容旧版明文密码字段：AccountStore 读取后会迁移到安全存储，
-        // 并重写账号 JSON 删除该字段。
-        password: json['password'] as String? ?? '',
-        schoolName: json['schoolName'] as String?,
-        className: json['className'] as String?,
-        userId: json['userId'] as String?,
-        schoolId: json['schoolId'] as String?,
-        classId: json['classId'] as String?,
-        isDefault: json['isDefault'] as bool? ?? false,
-        lastLoginAt: json['lastLoginAt'] as int?,
-      );
+    username: json['username'] as String? ?? '',
+    // 兼容旧版明文密码字段：AccountStore 读取后会迁移到安全存储，
+    // 并重写账号 JSON 删除该字段。
+    password: json['password'] as String? ?? '',
+    schoolName: json['schoolName'] as String?,
+    className: json['className'] as String?,
+    userId: json['userId'] as String?,
+    schoolId: json['schoolId'] as String?,
+    classId: json['classId'] as String?,
+    isDefault: json['isDefault'] as bool? ?? false,
+    lastLoginAt: json['lastLoginAt'] as int?,
+  );
 }
 
 /// 首页考试列表中的一项考试。
@@ -147,11 +147,31 @@ class SubjectScore {
     required this.name,
     required this.fullScore,
     required this.score,
+    this.participated = true,
   });
 
   final String name;
   final double fullScore;
   final double score;
+
+  /// 学生是否实际参加了该科目考试。
+  ///
+  /// 平台会在多科目考试中列出全部科目，但学生可能只参加了其中一部分。
+  /// 未参加的科目通常没有成绩（或在平台仍有默认 0 分），因此不能把它的
+  /// 满分计入「实际满分总分」。
+  final bool participated;
+
+  /// 失分（满分 - 得分），负分按 0 计。
+  double get lostScore =>
+      fullScore > score && fullScore > 0 ? fullScore - score : 0;
+
+  /// 得分率（0～1）；满分缺失时返回 null。
+  double? get scoreRate =>
+      fullScore > 0 ? (score / fullScore).clamp(0.0, 1.0).toDouble() : null;
+
+  /// 失分率（0～1）；满分缺失时返回 null。
+  double? get lostRate =>
+      fullScore > 0 ? (lostScore / fullScore).clamp(0.0, 1.0).toDouble() : null;
 }
 
 /// 成绩单中的一行附加指标（如最高分、年级平均分、排名）。
@@ -217,6 +237,69 @@ class ScoreReport {
       averageScores != null ||
       classRanks != null ||
       gradeRanks != null;
+
+  /// 实际参加考试的科目。
+  Iterable<SubjectScore> get participatedSubjects =>
+      subjects.where((subject) => subject.participated);
+
+  /// 实际参加考试的科目数。
+  int get participatedSubjectCount => participatedSubjects.length;
+
+  /// 按科目名查找成绩；忽略空白与全角括号差异。
+  SubjectScore? subjectForName(String name) {
+    final target = normalizeSubjectName(name);
+    for (final subject in subjects) {
+      if (normalizeSubjectName(subject.name) == target) return subject;
+    }
+    return null;
+  }
+
+  /// 实考科目中失分最多的科目；没有失分时为 null。
+  SubjectScore? get maxLostSubject {
+    SubjectScore? result;
+    for (final subject in participatedSubjects) {
+      if (subject.lostScore <= 0) continue;
+      if (result == null || subject.lostScore > result.lostScore) {
+        result = subject;
+      }
+    }
+    return result;
+  }
+
+  /// 实考科目中失分率最高的科目；没有失分时为 null。
+  SubjectScore? get maxLostRateSubject {
+    SubjectScore? result;
+    for (final subject in participatedSubjects) {
+      final rate = subject.lostRate;
+      if (rate == null || rate <= 0) continue;
+      if (result == null || rate > result.lostRate!) result = subject;
+    }
+    return result;
+  }
+
+  /// 按实际参加科目计算的满分之和。
+  ///
+  /// 平台显示的总分满分可能包含学生没有参加的科目（例如列出 9 科，
+  /// 实际只考了 7 科），这里只累加实际参加科目的满分。没有任何可用
+  /// 科目时返回 null。
+  double? get actualTotalFullScore {
+    var sum = 0.0;
+    var found = false;
+    for (final subject in participatedSubjects) {
+      if (subject.fullScore <= 0) continue;
+      sum += subject.fullScore;
+      found = true;
+    }
+    return found ? sum : null;
+  }
+
+  /// 平台显示的总分满分与实考科目满分之和是否不同。
+  bool get hasTotalFullScoreMismatch {
+    final actual = actualTotalFullScore;
+    final displayed = totalFullScore;
+    if (actual == null || displayed == null) return false;
+    return (actual - displayed).abs() > 0.001;
+  }
 }
 
 /// 总分分析报告中的某个科目入口（携带进入学科报告的完整参数）。
@@ -256,22 +339,22 @@ class SubjectLink {
   final String testScoreLevel;
 
   Map<String, String> toForm() => {
-        'paperId': paperId,
-        'subjectName': subjectName,
-        'score': score.toString(),
-        'scoreTotal': scoreTotal.toString(),
-        'levelId': levelId.toString(),
-        'levelName': levelName,
-        'userId': userId,
-        'userType': userType,
-        'name': name,
-        'userName': userName,
-        'schoolId': schoolId,
-        'schoolName': schoolName,
-        'testId': testId,
-        'className': className,
-        'testScoreLevel': testScoreLevel,
-      };
+    'paperId': paperId,
+    'subjectName': subjectName,
+    'score': score.toString(),
+    'scoreTotal': scoreTotal.toString(),
+    'levelId': levelId.toString(),
+    'levelName': levelName,
+    'userId': userId,
+    'userType': userType,
+    'name': name,
+    'userName': userName,
+    'schoolId': schoolId,
+    'schoolName': schoolName,
+    'testId': testId,
+    'className': className,
+    'testScoreLevel': testScoreLevel,
+  };
 }
 
 /// 总分分析报告（成绩单 + 综述 + 优势弱势科目）。
@@ -330,20 +413,17 @@ class TotalReport {
 
   /// 总分所处层次（1～5），无法解析时为 null。
   int? get totalLevel {
-    final byTotal = RegExp(r'总分处于\s*(\d+)\s*层次')
-        .firstMatch(rankText ?? '');
+    final byTotal = RegExp(r'总分处于\s*(\d+)\s*层次').firstMatch(rankText ?? '');
     if (byTotal != null) return int.tryParse(byTotal.group(1)!);
 
-    final byPosition = RegExp(r'位于\s*(\d+)\s*层次')
-        .firstMatch(positionText ?? '');
-    return byPosition == null
-        ? null
-        : int.tryParse(byPosition.group(1)!);
+    final byPosition = RegExp(
+      r'位于\s*(\d+)\s*层次',
+    ).firstMatch(positionText ?? '');
+    return byPosition == null ? null : int.tryParse(byPosition.group(1)!);
   }
 
   /// 「3 层次」样式的层次标签。
-  String? get totalLevelLabel =>
-      totalLevel == null ? null : '$totalLevel 层次';
+  String? get totalLevelLabel => totalLevel == null ? null : '$totalLevel 层次';
 
   /// 各科目所处层次（科目名 → 层次），来自「3层次科目：英语」这样的分组文本。
   ///
@@ -365,6 +445,15 @@ class TotalReport {
 
   /// 指定科目所处的层次，无法解析时为 null。
   int? subjectLevel(String subjectName) => subjectLevels[subjectName];
+
+  /// 按科目名查找可跳转的科目分析入口；忽略空白与全角括号差异。
+  SubjectLink? linkForSubject(String subjectName) {
+    final target = normalizeSubjectName(subjectName);
+    for (final link in subjects) {
+      if (normalizeSubjectName(link.subjectName) == target) return link;
+    }
+    return null;
+  }
 
   /// 与总分同层次的科目列表。
   List<String> get levelSubjects {
@@ -479,13 +568,117 @@ class AnswerSheetForm {
   final String schoolName;
   final String testId;
 
-  Map<String, String> toForm() => {
-        'paperId': paperId,
-        'classNo': classNo,
-        'studentName': studentName,
-        'schoolName': schoolName,
-        'testId': testId,
-      };
+  Map<String, String> toForm({String? itemId}) => {
+    'paperId': paperId,
+    'classNo': classNo,
+    'studentName': studentName,
+    'schoolName': schoolName,
+    'testId': testId,
+    if (itemId != null && itemId.isNotEmpty) 'itemId': itemId,
+  };
+}
+
+/// 典型答卷中的一张图片。
+class TypicalAnswerImage {
+  const TypicalAnswerImage({
+    required this.url,
+    this.number = '',
+    this.label = '',
+  });
+
+  /// 图片地址。
+  final String url;
+
+  /// 题号，例如「10」「18.2」；接口未提供时为空。
+  final String number;
+
+  /// 平台给出的评价，例如「优秀答卷」「典型错误」「满分答卷 6分」。
+  final String label;
+
+  /// 展示用评价；没有评价时回退为「典型答卷」。
+  String get displayLabel => label.trim().isEmpty ? '典型答卷' : label.trim();
+}
+
+/// 典型答卷中某道小题的一组图片。
+class TypicalAnswerItem {
+  const TypicalAnswerItem({
+    required this.itemId,
+    required this.number,
+    this.images = const [],
+  });
+
+  /// 平台的小题 ID，用于按题加载典型答卷。
+  final String itemId;
+
+  /// 题号，例如「10」「18.2」。
+  final String number;
+
+  /// 该题的全部典型答卷图片。
+  final List<TypicalAnswerImage> images;
+
+  bool get hasImages => images.isNotEmpty;
+
+  TypicalAnswerItem copyWith({List<TypicalAnswerImage>? images}) {
+    return TypicalAnswerItem(
+      itemId: itemId,
+      number: number,
+      images: images ?? this.images,
+    );
+  }
+}
+
+/// 典型答卷（按题目分组）。
+class TypicalAnswerSheet {
+  const TypicalAnswerSheet({required this.items});
+
+  /// 小题列表，顺序与平台页面上的题号导航一致。
+  final List<TypicalAnswerItem> items;
+
+  bool get isEmpty => items.isEmpty;
+
+  /// 是否至少有一道题包含典型答卷图片。
+  bool get hasImages => items.any((item) => item.hasImages);
+
+  /// 根据题号查找小题，忽略空白与全角括号差异。
+  TypicalAnswerItem? itemForNumber(String number) {
+    final target = normalizeQuestionNumber(number);
+    for (final item in items) {
+      if (normalizeQuestionNumber(item.number) == target) return item;
+    }
+    return null;
+  }
+
+  /// 替换某道题的图片并返回新的答卷对象。
+  TypicalAnswerSheet withItemImages(
+    String itemId,
+    List<TypicalAnswerImage> images,
+  ) {
+    return TypicalAnswerSheet(
+      items: [
+        for (final item in items)
+          item.itemId == itemId ? item.copyWith(images: images) : item,
+      ],
+    );
+  }
+}
+
+/// 规范化科目名，便于把「数学」「数学 」与「数学（A）」等写法对齐。
+String normalizeSubjectName(String value) {
+  return value
+      .trim()
+      .replaceAll(RegExp(r'\s+'), '')
+      .replaceAll('（', '(')
+      .replaceAll('）', ')');
+}
+
+/// 规范化题号，便于把「11（1）」「11(1)」「11.1」等写法对齐。
+String normalizeQuestionNumber(String value) {
+  return value
+      .trim()
+      .replaceAll('（', '(')
+      .replaceAll('）', ')')
+      .replaceAll('．', '.')
+      .replaceAll(RegExp(r'\s+'), '');
 }
 
 /// 一个难度档位的失分统计（例如「较易 8 分」）。
@@ -544,8 +737,7 @@ class SubjectReport {
   final AnswerSheetForm? answerSheet;
 
   /// 失分（满分 - 得分）。
-  double get lostScore =>
-      fullScore > score ? fullScore - score : 0;
+  double get lostScore => fullScore > score ? fullScore - score : 0;
 
   /// 得分率（0～1）。
   double get scoreRate => fullScore > 0 ? score / fullScore : 0;

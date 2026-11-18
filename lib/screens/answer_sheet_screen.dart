@@ -8,6 +8,8 @@ import '../services/image_actions.dart';
 import '../services/image_store.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_pull_to_refresh.dart';
+import '../widgets/app_top_bar.dart';
 import '../widgets/xlf_image.dart';
 import 'image_viewer_screen.dart';
 
@@ -17,14 +19,10 @@ class AnswerSheetScreen extends StatefulWidget {
     super.key,
     required this.title,
     required this.form,
-    this.typical = false,
   });
 
   final String title;
   final AnswerSheetForm form;
-
-  /// 是否展示典型答卷（否则展示我的答卷）。
-  final bool typical;
 
   @override
   State<AnswerSheetScreen> createState() => _AnswerSheetScreenState();
@@ -50,10 +48,7 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
       _error = null;
     });
     try {
-      final urls = await XlfClient.instance.fetchAnswerSheetImages(
-        widget.form,
-        typical: widget.typical,
-      );
+      final urls = await XlfClient.instance.fetchAnswerSheetImages(widget.form);
       if (!mounted) return;
       setState(() {
         _urls = urls;
@@ -147,18 +142,22 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-        actions: [
-          if (context.isDesktopPlatform)
-            IconButton(
-              tooltip: '刷新答卷图片',
-              onPressed: _loading ? null : _load,
-              icon: const Icon(Icons.refresh),
-            ),
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          AppTopBar(
+            title: widget.title,
+            actions: [
+              if (context.isDesktopPlatform)
+                IconButton(
+                  tooltip: '刷新答卷图片',
+                  onPressed: _loading ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                ),
+            ],
+          ),
         ],
+        body: _buildBody(),
       ),
-      body: _buildBody(),
     );
   }
 
@@ -185,13 +184,16 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
     if (_urls.isEmpty) {
       return const Center(child: Text('暂无答卷图片'));
     }
-    return M3EPullToRefreshIndicator(
-      onRefresh: _load,
-      child: ContentWidth(
-        maxWidth: 900,
+    return LayoutBuilder(
+      builder: (context, constraints) => AppPullToRefresh(
+        onRefresh: _load,
         child: ListView.builder(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(12),
+          padding: centeredPadding(
+            constraints.maxWidth,
+            maxWidth: AppLayout.contentMaxWidth,
+            padding: const EdgeInsets.all(12),
+          ),
           itemCount: _urls.length,
           itemBuilder: (_, i) => _buildImage(_urls[i], i),
         ),

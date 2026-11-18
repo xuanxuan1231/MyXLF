@@ -8,6 +8,7 @@ import '../theme/responsive.dart';
 import '../widgets/app_top_bar.dart';
 import 'about_screen.dart';
 import 'account_management_screen.dart';
+import 'enhancement_settings_screen.dart';
 import 'login_history_screen.dart';
 import 'login_screen.dart';
 import 'privacy_settings_screen.dart';
@@ -53,6 +54,15 @@ class AccountScreen extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => const PrivacySettingsScreen(),
         settings: const RouteSettings(name: 'Privacy Settings'),
+      ),
+    );
+  }
+
+  Future<void> _openEnhancements(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const EnhancementSettingsScreen(),
+        settings: const RouteSettings(name: 'Enhancement Settings'),
       ),
     );
   }
@@ -153,29 +163,43 @@ class AccountScreen extends StatelessWidget {
       children: [
         const _SectionLabel('应用'),
         M3ESegmentedList(
-          itemCount: 2,
+          itemCount: 3,
           outerRadius: 24,
           padding: EdgeInsets.zero,
           onTap: (i) {
             if (i == 0) {
+              _openEnhancements(context);
+            } else if (i == 1) {
               _openAbout(context);
             } else {
               _openPrivacy(context);
             }
           },
-          itemBuilder: (_, i) => i == 0
-              ? _settingsTile(
+          itemBuilder: (_, i) {
+            switch (i) {
+              case 0:
+                return _settingsTile(
+                  scheme,
+                  icon: Icons.auto_awesome,
+                  title: '增强功能',
+                  subtitle: '管理默认开启的数据修正功能',
+                );
+              case 1:
+                return _settingsTile(
                   scheme,
                   icon: Icons.info_outline,
                   title: '关于',
                   subtitle: '版本信息、项目主页与更新检查',
-                )
-              : _settingsTile(
+                );
+              default:
+                return _settingsTile(
                   scheme,
                   icon: Icons.privacy_tip_outlined,
                   title: '隐私与遥测',
                   subtitle: '匿名使用数据与隐私选项',
-                ),
+                );
+            }
+          },
         ),
       ],
     );
@@ -233,7 +257,9 @@ class AccountScreen extends StatelessWidget {
               SliverPadding(
                 padding: centeredPadding(
                   constraints.maxWidth,
-                  maxWidth: twoPane ? 1040 : 760,
+                  maxWidth: twoPane
+                      ? AppLayout.twoPaneMaxWidth
+                      : AppLayout.contentMaxWidth,
                   padding: EdgeInsets.fromLTRB(
                     16,
                     12,
