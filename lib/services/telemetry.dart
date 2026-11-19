@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
 import 'locale_name.dart';
+import 'log_sanitizer.dart';
 import 'os_version.dart';
 
 /// PostHog 遥测服务：统一管理 SDK 初始化、采集开关与事件上报。
@@ -204,6 +205,28 @@ class TelemetryService {
         ..captureNativeExceptions = true
         ..captureNativeCrashes = true;
 
+      // 诊断日志（PostHog Logs）：
+      // - 日志内容由 AppLog 统一写入并脱敏，这里再兜底一次；
+      // - 10 秒 / 10 条触发一次上报，兼顾「实时」与耗电；
+      // - 缓冲区与速率上限避免异常刷屏时产生大量请求。
+      // - Windows / Linux / macOS 不支持 Logs，配置不会生效，但本机缓冲
+      //   仍可用于工单诊断信息。
+      final logs = config.logsConfig
+        ..serviceName = 'myxlf'
+        ..serviceVersion =
+            '${_packageInfo?.version}+${_packageInfo?.buildNumber}'
+        ..environment = envName
+        ..resourceAttributes = {
+          'app_env': envName,
+          'platform': platformName,
+        }
+        ..flushInterval = const Duration(seconds: 10)
+        ..flushAt = 10
+        ..maxBufferSize = 500
+        ..rateCapMaxLogs = 400
+        ..rateCapWindow = const Duration(seconds: 10);
+      logs.beforeSend = [_sanitizeLogRecord];
+
       await Posthog().setup(config);
       _configured = true;
 
@@ -214,6 +237,21 @@ class TelemetryService {
       _configured = false;
       if (kDebugMode) debugPrint('PostHog 遥测初始化失败：$e');
     }
+  }
+
+  /// PostHog Logs 发送前的最后一道脱敏。
+  ///
+  /// AppLog 已经处理过一遍，但直接调用 `Posthog().captureLog()` 的地方
+  /// （以及未来新增的埋点）也会经过这里，避免遗漏。
+  static PostHogLogRecord? _sanitizeLogRecord(PostHogLogRecord record) {
+    final body = sanitizeLogText(record.body);
+    if (body.trim().isEmpty) return null;
+    final attributes = sanitizeLogAttributes(record.attributes);
+    return PostHogLogRecord(
+      body: body,
+      level: record.level,
+      attributes: attributes.isEmpty ? null : attributes,
+    );
   }
 
   /// 读取设备 ID：Android 为 Settings.Secure.ANDROID_ID，iOS 为 IDFV。
@@ -428,6 +466,60 @@ class TelemetryService {
     try {
       await Posthog().screen(screenName: screenName);
     } catch (_) {}
+  }
+
+  /// 当前平台是否支持 PostHog Logs。
+  ///
+  /// 官方只支持 Android / iOS / Web；Windows、Linux、macOS 上日志仍会写入
+  /// 本机环形缓冲（可用于工单诊断信息），但不会实时上报。
+  static bool get logsSupported =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// 上报一条诊断日志（PostHog Logs）。
+  ///
+  /// 遥测关闭、平台不支持或发送失败时静默跳过；日志内容与属性都会先脱敏。
+  Future<void> captureLog(
+    String body, {
+    PostHogLogSeverity level = PostHogLogSeverity.info,
+    Map<String, Object>? attributes,
+  }) async {
+    if (!isEnabled || !logsSupported) return;
+    final safeBody = sanitizeLogText(body);
+    if (safeBody.trim().isEmpty) return;
+    final safeAttributes = sanitizeLogAttributes(attributes);
+    try {
+      await Posthog().captureLog(
+        body: safeBody,
+        level: level,
+        attributes: safeAttributes.isEmpty ? null : safeAttributes,
+      );
+    } catch (_) {
+      // 日志上报失败绝不能影响应用本身。
+    }
+  }
+
+  /// 应用版本标签（`version+build`），工单诊断信息使用。
+  String get appVersionLabel {
+    final info = _packageInfo;
+    if (info == null) return '未知';
+    return '${info.version}+${info.buildNumber}';
+  }
+
+  /// 工单附带的诊断信息：只包含版本、平台、设备 ID 等匿名字段，
+  /// 不包含账号、姓名、学校 / 班级、成绩或答卷。
+  Future<Map<String, Object>> diagnostics() async {
+    return {
+      'app_version': _packageInfo?.version ?? '未知',
+      'app_build': _packageInfo?.buildNumber ?? '未知',
+      'app_env': envName,
+      'platform': platformName,
+      'os_version': osVersion,
+      'locale': localeName,
+      'distinct_id': await distinctId(),
+      'logs_supported': logsSupported,
+    };
   }
 
   /// 当前匿名设备 ID：Android 为 ANDROID_ID，iOS 为 IDFV，其他平台为

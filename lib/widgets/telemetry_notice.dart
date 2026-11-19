@@ -18,6 +18,7 @@ class TelemetryNotice extends StatelessWidget {
         _bullet(context, Icons.system_update_alt, '应用版本与构建号，用于版本分布统计'),
         _bullet(context, Icons.insights_outlined, '页面浏览与功能使用情况，用于改进界面与功能'),
         _bullet(context, Icons.bug_report_outlined, '崩溃报告与异常堆栈，用于定位和修复问题'),
+        _bullet(context, Icons.notes_outlined, '应用运行日志与诊断信息，用于排查故障（桌面端仅保存在本机）'),
         _bullet(context, Icons.schedule, '安装、启动、使用时长等统计，用于活跃度分析'),
         const SizedBox(height: 16),
         Text('我们绝不会收集', style: textTheme.titleSmall),
@@ -26,6 +27,23 @@ class TelemetryNotice extends StatelessWidget {
         _bullet(context, Icons.lock_outline, '密码与登录凭据（它们只保存在系统安全存储中）'),
         _bullet(context, Icons.school_outlined, '成绩、答卷等任何学习数据'),
         _bullet(context, Icons.location_off_outlined, '精确位置、通讯录等设备隐私数据'),
+        const SizedBox(height: 12),
+        Text(
+          '以上限制针对自动收集。工单内容由你主动填写，只用于处理你的问题。',
+          style: textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 16),
+        Text('工单与反馈', style: textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Text(
+          '在「帮助与反馈」中提交工单时，你填写的内容会发送给客服并保存在 '
+          'PostHog。你可以选择是否附带诊断信息（版本、平台、匿名设备 ID '
+          '与最近日志）；诊断信息不包含账号、成绩或答卷。',
+          style: textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+            height: 1.45,
+          ),
+        ),
         const SizedBox(height: 16),
         Text(
           '统计服务由 PostHog 提供。数据仅用于改进应用和排查故障，'

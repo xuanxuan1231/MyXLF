@@ -12,6 +12,7 @@ import 'enhancement_settings_screen.dart';
 import 'login_history_screen.dart';
 import 'login_screen.dart';
 import 'privacy_settings_screen.dart';
+import 'support_screen.dart';
 
 /// 账户页（底部导航第二个 Tab）。
 class AccountScreen extends StatelessWidget {
@@ -72,6 +73,15 @@ class AccountScreen extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => const LoginHistoryScreen(),
         settings: const RouteSettings(name: 'Login History'),
+      ),
+    );
+  }
+
+  Future<void> _openSupport(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const SupportScreen(),
+        settings: const RouteSettings(name: 'Support'),
       ),
     );
   }
@@ -163,16 +173,19 @@ class AccountScreen extends StatelessWidget {
       children: [
         const _SectionLabel('应用'),
         M3ESegmentedList(
-          itemCount: 3,
+          itemCount: 4,
           outerRadius: 24,
           padding: EdgeInsets.zero,
           onTap: (i) {
-            if (i == 0) {
-              _openEnhancements(context);
-            } else if (i == 1) {
-              _openAbout(context);
-            } else {
-              _openPrivacy(context);
+            switch (i) {
+              case 0:
+                _openEnhancements(context);
+              case 1:
+                _openSupport(context);
+              case 2:
+                _openAbout(context);
+              default:
+                _openPrivacy(context);
             }
           },
           itemBuilder: (_, i) {
@@ -185,6 +198,13 @@ class AccountScreen extends StatelessWidget {
                   subtitle: '管理默认开启的数据修正功能',
                 );
               case 1:
+                return _settingsTile(
+                  scheme,
+                  icon: Icons.support_agent,
+                  title: '帮助与反馈',
+                  subtitle: '提交工单、查看回复与诊断日志',
+                );
+              case 2:
                 return _settingsTile(
                   scheme,
                   icon: Icons.info_outline,

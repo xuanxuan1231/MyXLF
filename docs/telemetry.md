@@ -11,7 +11,7 @@ PostHog 中查看各项指标。
 | 常量 | 说明 |
 | --- | --- |
 | `kPosthogApiKey` | PostHog 项目 token（客户端公开 key） |
-| `kPosthogHost` | 采集地址，默认 `https://us.i.posthog.com`，自建实例改为自己的域名 |
+| `kPosthogHost` | 采集地址，当前为自建实例 `https://instrumental-sense.helloswx.top` |
 
 核心逻辑在 [`lib/services/telemetry.dart`](../lib/services/telemetry.dart)
 （`TelemetryService`），初始化在 [`lib/main.dart`](../lib/main.dart)。
@@ -81,14 +81,42 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
   `platform` / `os_version` / `app_version` / `app_build` / `locale`）；
 - 页面浏览（`$screen`）与功能使用情况；
 - 崩溃报告与异常堆栈（`$exception`）；
+- 诊断日志（PostHog Logs，见下文「诊断日志」）；
 - 生命周期事件：`Application Installed` / `Application Updated` /
   `Application Opened` / `Application Backgrounded`（由应用自行采集）；
 - 前台使用时长（`Application Session Ended` 的 `duration_s` 属性）。
 
-**绝不会收集**：账号、姓名、学校 / 班级、密码与登录凭据、成绩与答卷、
-精确位置与通讯录。
+**绝不会自动收集**：账号、姓名、学校 / 班级、密码与登录凭据、成绩与答卷、
+精确位置与通讯录。工单内容由用户主动填写，不属于自动收集（见
+[`support.md`](support.md)）。
 
-### 设备 ID 说明
+## 诊断日志
+
+日志入口是 [`lib/services/app_log.dart`](../lib/services/app_log.dart)
+（`AppLog`），采用「本机环形缓冲 + PostHog Logs 实时上报」：
+
+- **本机缓冲**：始终保留最近 300 条，供「账户 → 隐私与遥测 → 诊断日志」
+  查看，以及提交工单时按需附带。遥测关闭时缓冲仍然工作，但不会上传。
+- **实时上报**：仅在用户同意遥测且平台支持时，把同一份日志转发到
+  PostHog Logs。默认 10 秒 / 10 条触发一次，缓冲上限 500 条，
+  速率上限 400 条 / 10 秒。
+- **脱敏**：写入缓冲与发送前都会经过
+  [`lib/services/log_sanitizer.dart`](../lib/services/log_sanitizer.dart)：
+  密码 / 令牌 / Cookie、邮箱、手机号、身份证号、带用户名的绝对路径会被
+  替换，单条日志截断到 2000 字符。
+- **平台支持**：PostHog Logs 仅支持 Android / iOS / Web；Windows、Linux、
+  macOS 上日志只写入本机缓冲，不会实时上报。Web 端还需要在
+  `web/index.html` 的 `posthog.init({...})` 中开启 `logs`（Flutter 侧的
+  `logsConfig` 在 Web 上不生效，只有 `beforeSend` 会执行）；当前 Web 构建
+  未初始化 posthog-js，因此 Web 上同样只保留本机缓冲。
+- **采集范围**：应用启动、网络失败与慢请求（只记录方法、路径、状态码与
+  耗时，不记录查询参数或请求体）、未捕获异常。SDK 不会自动采集
+  `print` / `debugPrint`，业务代码需要显式调用 `AppLog`。
+
+在 PostHog 中，日志会自动带上 `distinct_id`、会话 ID、页面名与前后台状态，
+可在 **Logs** 页面按 `distinct_id` 关联到对应的 person。
+
+## 设备 ID 说明
 
 设备 ID 即 PostHog 的匿名 `distinct_id`，按平台取值（`TelemetryService`）：
 
@@ -105,6 +133,18 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
 
 因此在 Android / iOS 上，**重装不会计为新装机**，「装机量」「活跃安装量」
 实际是设备数口径。「隐私与遥测」设置页会直接展示当前的设备 ID，方便核对。
+
+## 工单（PostHog Support）
+
+「账户 → 帮助与反馈」提供在线工单，服务层在
+[`lib/services/support_service.dart`](../lib/services/support_service.dart)。
+详细配置与接口说明见 [`support.md`](support.md)。
+
+- 工单提交到 PostHog Support（API 层叫 Conversations）；
+- Flutter SDK 没有 Conversations API，因此直接调用 Support Widget 的公开
+  HTTP 接口，token 在 `lib/config.dart` 的 `kPosthogConversationsToken` 中配置；
+- 身份沿用当前匿名设备 ID（`distinct_id`），不关联账号；
+- 提交时可选择附带诊断信息（版本、平台、匿名设备 ID 与最近日志）。
 
 ## 指标 → PostHog 对照表
 
@@ -142,9 +182,16 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
 
 | 文件 | 职责 |
 | --- | --- |
-| `lib/services/telemetry.dart` | SDK 初始化、采集开关、事件 / 异常上报、路由与生命周期观察者 |
+| `lib/services/telemetry.dart` | SDK 初始化、采集开关、事件 / 异常 / 日志上报、路由与生命周期观察者 |
+| `lib/services/app_log.dart` | 本机环形缓冲、日志级别、异常记录与 PostHog Logs 转发 |
+| `lib/services/log_sanitizer.dart` | 日志脱敏（密码、令牌、邮箱、手机号、路径等） |
+| `lib/services/support_service.dart` | PostHog Support 工单接口、身份与诊断信息组装 |
+| `lib/screens/support_screen.dart` | 「帮助与反馈」工单列表 |
+| `lib/screens/new_support_ticket_screen.dart` | 新建工单表单与诊断信息预览 |
+| `lib/screens/support_ticket_screen.dart` | 工单会话与回复 |
+| `lib/screens/log_viewer_screen.dart` | 本机诊断日志查看 / 复制 / 清空 |
 | `lib/screens/privacy_consent_screen.dart` | 首次启动「可选访问信息收集」说明页 |
 | `lib/screens/privacy_settings_screen.dart` | 「隐私与遥测」设置页（随时退出 / 加入） |
-| `lib/widgets/telemetry_notice.dart` | 「会收集 / 不会收集」说明内容（两页共用） |
+| `lib/widgets/telemetry_notice.dart` | 「会收集 / 不会收集 / 工单」说明内容（两页共用） |
 
 所有上报调用都吞掉异常：遥测故障绝不影响应用功能。

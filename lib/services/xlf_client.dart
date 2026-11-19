@@ -9,6 +9,7 @@ import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import '../config.dart';
 import '../models/models.dart';
 import 'aes_crypto.dart';
+import 'app_log.dart';
 import 'dio_platform.dart';
 import 'parsers.dart';
 import 'xlf_exceptions.dart';
@@ -107,6 +108,8 @@ class XlfClient {
     }
     // 会话过期检测 + 静默重登（须在 CookieManager 之后注册，以便重试时带上新 Cookie）。
     _dio.interceptors.add(_SessionGuardInterceptor(this));
+    // 网络诊断：只记录失败与慢请求，且不包含查询参数 / 请求体。
+    _dio.interceptors.add(_NetworkLogInterceptor());
   }
 
   /// 会话代数：每次登出自增。
@@ -1006,6 +1009,60 @@ int _writeJsString(String js, int start, StringBuffer out) {
   // 未闭合的字符串：补上引号，交给 jsonDecode 统一报错。
   out.write('"');
   return js.length;
+}
+
+/// 网络诊断拦截器：记录失败与慢请求。
+///
+/// 只记录 HTTP 方法、路径、状态码与耗时，不记录查询参数、请求体或响应体，
+/// 避免把账号、姓名、成绩等业务数据带进诊断日志。
+class _NetworkLogInterceptor extends Interceptor {
+  static const String _startedKey = 'xlf_request_started_us';
+  static const int _slowThresholdMs = 5000;
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    options.extra[_startedKey] = DateTime.now().microsecondsSinceEpoch;
+    handler.next(options);
+  }
+
+  @override
+  void onResponse(Response response, ResponseInterceptorHandler handler) {
+    final started = response.requestOptions.extra[_startedKey];
+    if (started is int) {
+      final elapsedMs =
+          (DateTime.now().microsecondsSinceEpoch - started) ~/ 1000;
+      if (elapsedMs >= _slowThresholdMs) {
+        AppLog.instance.warn(
+          '慢请求 ${response.requestOptions.method} '
+          '${response.requestOptions.uri.path}',
+          attributes: {
+            'duration_ms': elapsedMs,
+            'status': response.statusCode ?? 0,
+          },
+        );
+      }
+    }
+    handler.next(response);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    // 主动取消（页面关闭、请求被替换）不是故障，不写日志。
+    if (err.type == DioExceptionType.cancel) {
+      handler.next(err);
+      return;
+    }
+    final options = err.requestOptions;
+    AppLog.instance.warn(
+      '网络请求失败 ${options.method} ${options.uri.path}',
+      attributes: {
+        'type': err.type.name,
+        if (err.response?.statusCode != null)
+          'status': err.response!.statusCode!,
+      },
+    );
+    handler.next(err);
+  }
 }
 
 /// 会话守卫拦截器：检测会话过期，自动恢复后重试一次原请求。

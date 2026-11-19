@@ -53,7 +53,7 @@ Web 端的「保存到相册」会改为浏览器下载，「分享」优先使�
 
 ## 遥测与隐私
 
-应用集成了 [PostHog](https://posthog.com) 匿名使用统计（装机量、活跃度、版本分布、崩溃与稳定性），debug 构建默认关闭遥测，profile / release 通过事件属性 `app_env` 区分。首次启动会在登录页之前展示「可选访问信息收集」说明页（默认勾选，可取消），之后随时可在「账户 → 隐私与遥测」中退出或重新加入。**不收集**账号、姓名、成绩等任何个人数据。详见 [docs/telemetry.md](docs/telemetry.md)。
+应用集成了 [PostHog](https://posthog.com) 匿名使用统计（装机量、活跃度、版本分布、崩溃与稳定性）与诊断日志，debug 构建默认关闭遥测，profile / release 通过事件属性 `app_env` 区分。首次启动会在登录页之前展示「可选访问信息收集」说明页（默认勾选，可取消），之后随时可在「账户 → 隐私与遥测」中退出或重新加入。「账户 → 帮助与反馈」还可以提交在线工单，并可选择附带诊断信息。**不自动收集**账号、姓名、成绩等任何个人数据。详见 [docs/telemetry.md](docs/telemetry.md) 与 [docs/support.md](docs/support.md)。
 
 ## CI
 
