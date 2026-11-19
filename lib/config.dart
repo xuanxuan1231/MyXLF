@@ -69,7 +69,7 @@ const String kPosthogPrivacyUrl = 'https://posthog.com/privacy';
 /// 构建时可通过 `--dart-define=POSTHOG_CONVERSATIONS_TOKEN=...` 注入。
 const String kPosthogConversationsToken = String.fromEnvironment(
   'POSTHOG_CONVERSATIONS_TOKEN',
-  defaultValue: 'G0us_8Vj1LWJWf_dQ3RlI-20V1zyY98ZLSM721ms5_U',
+  defaultValue: 'phc_mpnVqLeE9c6UhwZzUAdQNvLTueaDUAq72B76pzBWjen8',
 );
 
 /// 在线工单不可用时的兜底入口：软件介绍 / 使用文档（语雀）。
