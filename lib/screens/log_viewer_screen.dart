@@ -17,8 +17,6 @@ class LogViewerScreen extends StatefulWidget {
 }
 
 class _LogViewerScreenState extends State<LogViewerScreen> {
-  int _revision = 0;
-
   Future<void> _copy() async {
     final text = AppLog.instance.exportText(limit: AppLog.defaultCapacity);
     if (text.isEmpty) return;
@@ -52,12 +50,19 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
     );
     if (confirmed != true) return;
     AppLog.instance.clear();
-    if (!mounted) return;
-    setState(() => _revision++);
   }
 
   @override
   Widget build(BuildContext context) {
+    // AppLog 是 ChangeNotifier：错误发生后日志会立即出现在页面上，
+    // 不需要退出再重新进入。
+    return ListenableBuilder(
+      listenable: AppLog.instance,
+      builder: (context, _) => _buildView(context),
+    );
+  }
+
+  Widget _buildView(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final logs = AppLog.instance.exportText(limit: AppLog.defaultCapacity);
@@ -82,10 +87,12 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
             ],
           ),
         ],
+        // AppTopBar 在滚动视图内部，已经处理了状态栏高度；
+        // 这里再叠一层 SafeArea 会产生一段多余空白。
         body: SafeArea(
+          top: false,
           child: LayoutBuilder(
             builder: (context, constraints) => ListView(
-              key: ValueKey(_revision),
               padding: centeredPadding(
                 constraints.maxWidth,
                 maxWidth: AppLayout.contentMaxWidth,

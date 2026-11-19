@@ -144,6 +144,7 @@ class _NewSupportTicketScreenState extends State<NewSupportTicketScreen> {
           const AppTopBar(title: '新建工单', subtitle: '描述问题与复现步骤'),
         ],
         body: SafeArea(
+          top: false,
           child: LayoutBuilder(
             builder: (context, constraints) => ListView(
               padding: centeredPadding(

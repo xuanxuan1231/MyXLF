@@ -12,6 +12,7 @@ import '../config.dart';
 import 'locale_name.dart';
 import 'log_sanitizer.dart';
 import 'os_version.dart';
+import 'uuid.dart';
 
 /// PostHog 遥测服务：统一管理 SDK 初始化、采集开关与事件上报。
 ///
@@ -42,6 +43,13 @@ class TelemetryService {
   ///
   /// 用于自行判断本次启动是首次安装还是版本升级。
   static const String _kLastVersionKey = 'telemetry_last_version';
+
+  /// 设备 ID 兜底值（SharedPreferences 键）。
+  ///
+  /// 遥测未初始化（debug 构建、桌面端或 SDK 初始化失败）时拿不到原生
+  /// 设备标识；工单接口要求 `distinct_id` 非空，因此持久化一个随机
+  /// UUID 作为设备级身份。
+  static const String _kFallbackDeviceIdKey = 'device_distinct_id';
 
   /// 遥测 SDK 是否已成功初始化。
   bool _configured = false;
@@ -526,14 +534,30 @@ class TelemetryService {
   /// PostHog SDK 生成并保存在本机的随机 UUID。
   ///
   /// 仅用于去重统计，不关联任何账号身份；SDK 未初始化时返回读取到的
-  /// 设备 ID（未读到则为空串）。
+  /// 设备 ID。都取不到时（debug 构建、桌面端等）生成并持久化一个随机
+  /// UUID，保证工单接口的 `distinct_id` 不为空。
   Future<String> distinctId() async {
-    if (!_configured) return _deviceId;
+    if (_configured) {
+      try {
+        final id = await Posthog().getDistinctId();
+        if (id.isNotEmpty) return id;
+      } catch (_) {}
+    }
+    if (_deviceId.isNotEmpty) return _deviceId;
+    return _fallbackDeviceId();
+  }
+
+  Future<String> _fallbackDeviceId() async {
     try {
-      final id = await Posthog().getDistinctId();
-      return id.isNotEmpty ? id : _deviceId;
+      final prefs = await SharedPreferences.getInstance();
+      final existing = prefs.getString(_kFallbackDeviceIdKey);
+      if (existing != null && existing.isNotEmpty) return existing;
+      final created = newUuidV4();
+      await prefs.setString(_kFallbackDeviceIdKey, created);
+      return created;
     } catch (_) {
-      return _deviceId;
+      // 本地存储不可用时返回临时值：本次会话内稳定，重启后会变化。
+      return newUuidV4();
     }
   }
 

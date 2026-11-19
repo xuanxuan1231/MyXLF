@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:posthog_flutter/posthog_flutter.dart';
@@ -8,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
 import 'app_log.dart';
 import 'telemetry.dart';
+import 'uuid.dart';
 
 /// 工单服务错误类型，界面据此给出不同的引导。
 enum SupportErrorKind {
@@ -354,6 +353,13 @@ class SupportService {
       final response = await request();
       final status = response.statusCode ?? 0;
       if (status >= 200 && status < 300) return response;
+      // 4xx / 5xx 也要写入诊断日志，否则用户只看到界面上的错误提示，
+      // 提交工单时无法把服务端返回的具体原因一起带过去。
+      final detail = _errorDetail(response.data);
+      AppLog.instance.warn(
+        '工单请求失败：$operation（HTTP $status）',
+        attributes: {'status': status, if (detail != null) 'detail': detail},
+      );
       throw _errorFromResponse(status, response.data, operation);
     } on SupportException {
       rethrow;
@@ -429,12 +435,19 @@ class SupportService {
 
   String? _errorDetail(dynamic data) {
     if (data is Map) {
-      for (final key in const ['error', 'detail', 'message']) {
-        final value = data[key];
-        if (value is String && value.trim().isNotEmpty) {
-          return value.trim();
-        }
+      final base = _firstNonEmptyString(data, const [
+        'error',
+        'detail',
+        'message',
+      ]);
+      // DRF 校验错误形如
+      // {"error": "Invalid request data", "details": {"field": ["原因"]}}，
+      // 只展示顶层 error 会让排查无从下手。
+      final details = _describeErrorDetails(data['details']);
+      if (details != null) {
+        return base == null ? details : '$base（$details）';
       }
+      return base;
     }
     if (data is String && data.trim().isNotEmpty && data.length <= 300) {
       return data.trim();
@@ -442,28 +455,66 @@ class SupportService {
     return null;
   }
 
+  String? _firstNonEmptyString(Map data, List<String> keys) {
+    for (final key in keys) {
+      final value = data[key];
+      if (value is String && value.trim().isNotEmpty) {
+        return value.trim();
+      }
+    }
+    return null;
+  }
+
+  String? _describeErrorDetails(dynamic details) {
+    final parts = <String>[];
+    if (details is Map) {
+      details.forEach((key, value) {
+        final text = switch (value) {
+          List() =>
+            value
+                .map((item) => '$item'.trim())
+                .where((item) => item.isNotEmpty)
+                .join('；'),
+          null => '',
+          _ => '$value'.trim(),
+        };
+        if (text.isNotEmpty) parts.add('$key: $text');
+      });
+    } else if (details is List) {
+      parts.addAll(
+        details.map((item) => '$item'.trim()).where((item) => item.isNotEmpty),
+      );
+    } else if (details is String && details.trim().isNotEmpty) {
+      parts.add(details.trim());
+    }
+    if (parts.isEmpty) return null;
+    final text = parts.join('；');
+    return text.length <= 300 ? text : '${text.substring(0, 300)}…';
+  }
+
+  /// 本地持久化的 widget session id。
+  ///
+  /// PostHog Widget API 要求该字段是合法 UUID；旧版本写入过非 UUID 值，
+  /// 读取时校验并自动迁移，避免所有请求都返回 `invalid request data`。
   Future<String> _widgetSessionId() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final existing = prefs.getString(_widgetSessionKey);
-      if (existing != null && existing.isNotEmpty) return existing;
-      final created = _randomHex(32);
+      if (existing != null && isUuid(existing)) {
+        return existing;
+      }
+      final created = newUuidV4();
       await prefs.setString(_widgetSessionKey, created);
       return created;
     } catch (_) {
       // 本地存储不可用时仍生成一个临时 ID：本次会话内可用，但重启后会丢失。
-      return _randomHex(32);
+      return newUuidV4();
     }
   }
 
-  static String _randomHex(int bytes) {
-    final random = Random.secure();
-    final buffer = StringBuffer();
-    for (var i = 0; i < bytes; i++) {
-      buffer.write(random.nextInt(256).toRadixString(16).padLeft(2, '0'));
-    }
-    return buffer.toString();
-  }
+  /// 测试专用：读取（并可能生成）当前设备的 widget session id。
+  @visibleForTesting
+  Future<String> debugWidgetSessionId() => _widgetSessionId();
 }
 
 /// 组装工单附带的诊断信息。

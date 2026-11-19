@@ -135,6 +135,7 @@ UI 与服务层完全分离：`SupportService` 不依赖任何页面，页面只
 | --- | --- | --- |
 | 401 / 403 | token 错误、Support 未启用、代理丢失请求头 | 重新复制公开 token，检查反向代理 |
 | 404 | `/api` 未被代理，或 Support 功能未开启 | 补齐代理路径 / 启用 Support |
+| 400 `invalid request data` | `widget_session_id` 不是合法 UUID，或 `distinct_id` 为空 | 应用会自动迁移旧 ID / 生成兜底 ID；仍失败时在诊断日志里查看 `detail` |
 | 429 | 触发 Widget 限流（约 30 次/分钟/会话） | 稍后重试，避免频繁刷新 |
 | 列表为空但客服后台有工单 | `widget_session_id` 变化（清数据 / 重装） | 属于设备级身份的预期行为 |
 | 桌面端日志为空 | 日志只在运行时产生 | 正常；桌面端不会实时上报 Logs |

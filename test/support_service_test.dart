@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:xlf/services/app_log.dart';
 import 'package:xlf/services/support_service.dart';
+import 'package:xlf/services/telemetry.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -12,11 +13,13 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     AppLog.instance.resetForTest();
     AppLog.instance.forwardToPostHog = false;
+    TelemetryService.instance.resetForTest();
   });
 
   tearDown(() {
     SupportService.instance.debugTokenOverride = null;
     AppLog.instance.resetForTest();
+    TelemetryService.instance.resetForTest();
   });
 
   group('配置判断', () {
@@ -40,6 +43,39 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('Widget 会话 ID', () {
+    final uuidPattern = RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    );
+
+    test('生成合法 UUID 并持久化到本地', () async {
+      final id = await SupportService.instance.debugWidgetSessionId();
+
+      expect(uuidPattern.hasMatch(id), isTrue);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('support_widget_session_id'), id);
+    });
+
+    test('迁移旧版本写入的非法 ID', () async {
+      final legacy = List.filled(64, 'a').join();
+      SharedPreferences.setMockInitialValues({
+        'support_widget_session_id': legacy,
+      });
+
+      final id = await SupportService.instance.debugWidgetSessionId();
+
+      expect(uuidPattern.hasMatch(id), isTrue);
+      expect(id, isNot(legacy));
+    });
+
+    test('遥测未初始化时 distinct_id 仍有本地兜底值', () async {
+      final id = await TelemetryService.instance.distinctId();
+
+      expect(id, isNotEmpty);
+      expect(uuidPattern.hasMatch(id), isTrue);
     });
   });
 

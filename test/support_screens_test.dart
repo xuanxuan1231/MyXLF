@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:xlf/screens/log_viewer_screen.dart';
 import 'package:xlf/screens/new_support_ticket_screen.dart';
 import 'package:xlf/screens/support_screen.dart';
 import 'package:xlf/services/app_log.dart';
@@ -65,5 +66,21 @@ void main() {
     expect(find.text('诊断信息预览'), findsOneWidget);
     expect(find.text('提交工单'), findsOneWidget);
     expect(find.textContaining('在线工单尚未启用'), findsOneWidget);
+  });
+
+  testWidgets('诊断日志页在新日志写入后立即刷新', (tester) async {
+    useTallSurface(tester);
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light, home: const LogViewerScreen()),
+    );
+    await tester.pump();
+
+    expect(find.text('暂无日志'), findsOneWidget);
+
+    AppLog.instance.error('工单请求失败：创建工单（HTTP 400）');
+    await tester.pump();
+
+    expect(find.text('暂无日志'), findsNothing);
+    expect(find.textContaining('工单请求失败：创建工单'), findsOneWidget);
   });
 }

@@ -73,7 +73,7 @@ class AppLogEntry {
 ///   把同一份日志转发到 PostHog。转发失败不会影响任何业务逻辑。
 /// - **脱敏**：写入缓冲与转发前都会经过 [sanitizeLogText]，避免密码、
 ///   令牌、邮箱、手机号等进入日志。
-class AppLog {
+class AppLog extends ChangeNotifier {
   AppLog._();
 
   static final AppLog instance = AppLog._();
@@ -116,6 +116,8 @@ class AppLog {
     while (_entries.length > capacity) {
       _entries.removeFirst();
     }
+    // 日志查看器据此实时刷新，不必等页面重新打开。
+    notifyListeners();
     _forward(entry);
   }
 
@@ -181,6 +183,7 @@ class AppLog {
   /// 清空本机缓冲。
   void clear() {
     _entries.clear();
+    notifyListeners();
   }
 
   void _forward(AppLogEntry entry) {
@@ -203,5 +206,6 @@ class AppLog {
     forwardToPostHog = true;
     _lastExceptionSignature = null;
     _lastExceptionAt = null;
+    notifyListeners();
   }
 }
