@@ -10,6 +10,7 @@ import 'services/export_preferences.dart';
 import 'services/telemetry.dart';
 import 'services/update_checker.dart';
 import 'services/xlf_client.dart';
+import 'theme/app_localizations.dart';
 import 'theme/app_theme.dart';
 import 'widgets/session_recovery.dart';
 import 'widgets/update_dialog.dart';
@@ -96,12 +97,18 @@ class XlfApp extends StatelessWidget {
       themeMode: ThemeMode.system,
       // 桌面端支持鼠标拖动滚动（列表、横向图表）。
       scrollBehavior: const AppScrollBehavior(),
-      // 页面浏览（$screen）用自有观察者去重；PosthogObserver 只维护问卷
-      // 所需的导航上下文，routeFilter 始终返回 false，避免重复上报页面。
+      // material_ui 与 package:flutter/material.dart 是两套独立的类型。部分
+      // 插件（如 PostHog 问卷弹层）仍用后者构建 UI，只注册 material_ui 的
+      // MaterialLocalizations 会让插件里的 MaterialLocalizations.of() 拿到
+      // null，弹层静默失败（详见 app_localizations.dart）。
+      localizationsDelegates: appLocalizationsDelegates,
+      // PosthogObserver 放在第一位：SDK 文档建议如此，避免其他观察者
+      // 干扰问卷的导航上下文。它只维护问卷上下文，routeFilter 返回 false，
+      // 页面浏览仍由 TelemetryScreenObserver 去重上报。
       navigatorObservers: [
-        TelemetryScreenObserver(),
         if (TelemetryService.instance.isConfigured)
           PosthogObserver(routeFilter: (_) => false),
+        TelemetryScreenObserver(),
       ],
       home: const BootstrapScreen(),
     );

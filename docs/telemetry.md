@@ -36,6 +36,21 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
 > 遥测相关测试通过 `TelemetryService.enableForTest()` 临时打开 debug 构建的
 > 上报路径，仅用于测试，不影响真实 debug 运行。
 
+### 排查：在 profile / release 下查看 SDK 日志
+
+profile / release 默认关闭 SDK 日志（`PostHogConfig.debug = false`），
+`adb logcat` 里看不到任何 `PostHog` 输出。需要排查问卷、功能开关或上报
+异常时，用编译期开关临时打开，无需改代码：
+
+```bash
+adb logcat -c
+fvm flutter run --release --dart-define=POSTHOG_DEBUG=true
+adb logcat -v time | grep -iE "posthog|survey"
+```
+
+该开关只影响日志输出，不改变采集行为，也不改变 `app_env`。排查完成后
+去掉 `--dart-define` 重新构建即可恢复静默。
+
 ## 用户告知与退出
 
 - **首次启动**：登录页之前展示「可选访问信息收集」说明页
@@ -94,6 +109,26 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
 `TelemetryScreenObserver` 统一上报：它会在关闭对话框时去重，避免把下层
 页面重复计为一次浏览；底部 Tab 切换不会产生路由事件，因此在 `MainShell`
 中额外上报 `Home` / `Trend` / `Account`。
+
+### 问卷显示的前提：MaterialLocalizations 双注册
+
+本项目整体使用 `package:material_ui/material_ui.dart`，而 PostHog 的问卷
+弹层仍用 `package:flutter/material.dart` 构建（`showModalBottomSheet`）。
+两者是**两套独立的类型**，`MaterialLocalizations` 并非同一个类。
+
+如果 `MaterialApp` 只注册 `material_ui` 自带的那套，插件里的
+`MaterialLocalizations.of()` 会拿到 `null`：
+
+- debug 构建：触发 `No MaterialLocalizations found` 断言；
+- release 构建：断言被裁掉，抛出空值异常。
+
+`SurveyService` 会捕获这个异常且不输出任何日志，表现为**问卷永远不弹、
+也没有 `survey shown` 事件**，同时其他事件一切正常——极难从日志定位。
+
+因此 `lib/main.dart` 通过 `lib/theme/app_localizations.dart` 同时注册了
+`flutter_material.DefaultMaterialLocalizations.delegate`。两个代理的
+`type` 不同，`Localizations` 会分别缓存，互不覆盖。改动这一行前请先看
+`test/survey_display_test.dart`，它同时校验本地化可用性与弹层渲染。
 
 ### 用户画像属性
 

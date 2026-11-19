@@ -125,6 +125,14 @@ class TelemetryService {
   /// 用户是否已对「可选访问信息收集」做出选择（SharedPreferences 键）。
   static const String _kConsentKey = 'telemetry_consent';
 
+  /// 临时排查开关：profile / release 构建默认不输出 PostHog 日志。
+  ///
+  /// 排查问卷、功能开关等问题时，用
+  /// `--dart-define=POSTHOG_DEBUG=true` 重新构建即可在 `adb logcat`
+  /// 中看到 SDK 日志（Dart 与原生两侧同时生效）。默认值为 false，
+  /// 因此正常的 release 构建不会因为这项改动而多输出任何内容。
+  static const bool _kDebugLogging = bool.fromEnvironment('POSTHOG_DEBUG');
+
   /// 遥测 SDK 是否已成功初始化。
   bool _configured = false;
 
@@ -266,7 +274,7 @@ class TelemetryService {
 
       final config = PostHogConfig(kPosthogApiKey)
         ..host = kPosthogHost
-        ..debug = kDebugMode
+        ..debug = kDebugMode || _kDebugLogging
         // 用户同意之前不采集任何数据。
         ..optOut = !_consent
         // 安装 / 更新 / 打开 / 退到后台由 SDK 自动采集，不再自行重复上报。
