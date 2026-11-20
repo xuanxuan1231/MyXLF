@@ -4,7 +4,7 @@
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/xuanxuan1231/MyXLF/releases/latest) 下载，或者通过 [蓝奏云 (密码 5cfc)](https://wwasj.lanzouu.com/b01i5y6dji) 下载。
+从 [GitHub Releases](https://github.com/xuanxuan1231/MyXLF/releases/latest) 下载，或者通过 [蓝奏云 (密码 5cfc)](https://wwasj.lanzouu.com/b01i5y6dji) 下载。Android 客户端支持应用内更新，更新源为 Cloudflare R2 上的 `manifest.json`（见 [docs/updates.md](docs/updates.md)）。
 
 ## 本地开发
 
@@ -81,7 +81,8 @@ Web 端的「保存到相册」会改为浏览器下载，「分享」优先使�
 
 1. 运行静态分析和单元测试（Android 任务）。
 2. 构建 Release APK、AAB、IPA，以及 Windows ZIP、macOS APP ZIP 和 Linux TAR.GZ。
-3. 创建 GitHub Release（版本名取自标签去掉开头的 `v`），Release Notes 由 [git-cliff](https://git-cliff.org/) 根据提交历史生成，并附加以下文件：
+3. 生成多平台更新清单，并把安装包与清单上传到 Cloudflare R2。
+4. 创建 GitHub Release（版本名取自标签去掉开头的 `v`），Release Notes 由 [git-cliff](https://git-cliff.org/) 根据提交历史生成，并附加以下文件：
    - `MyXLF-<version>.apk`：可直接安装的通用 APK
    - `MyXLF-<version>.aab`：用于 Google Play 上架
    - `MyXLF-<version>.ipa`：已签名的 iOS 安装包（配置 iOS 签名时）
@@ -89,6 +90,7 @@ Web 端的「保存到相册」会改为浏览器下载，「分享」优先使�
    - `MyXLF-<version>-windows-x64.zip`：Windows x64 应用压缩包
    - `MyXLF-<version>-macos.zip`：macOS 应用压缩包
    - `MyXLF-<version>-linux-x64.tar.gz`：Linux x64 应用压缩包
+   - `manifest.json`：多平台更新清单（同时上传到 Cloudflare R2）
    - `SHA256SUMS-<version>-{android,ios,windows,macos,linux}.txt`：校验文件
 
 也可以进入 **Actions → Release → Run workflow** 手动触发；版本号留空时使用 `pubspec.yaml` 中的版本。手动触发时可设置：
@@ -110,6 +112,30 @@ Release Notes 由 git-cliff 根据上一个版本标签到本次标签之间的�
   git cliff --latest                  # 最新版本的 Release Notes
   git cliff --unreleased --tag v1.2.3 # 模拟下一个版本的 Release Notes
   ```
+
+### 应用内更新（Cloudflare R2）
+
+所有平台的客户端都不再调用 GitHub API，而是读取 R2 上的 `manifest.json` 检查更新。发版时工作流会把 APK / IPA / 桌面压缩包和清单一起上传到 R2：
+
+- Android：发现新版本后可在应用内下载 APK，校验 `size` 与 `SHA-256` 后调起系统安装程序（首次需要允许「安装未知应用」）。
+- iOS / Windows / macOS / Linux / Web：读取清单判断版本后，打开当前平台的安装包直链（没有时退回 `release_url`）。
+
+R2 的端点、桶名和公开域名不是机密，已直接写在 [`.github/workflows/release.yml`](.github/workflows/release.yml) 顶部：
+
+```yaml
+R2_ENDPOINT: https://66c00241227771096180f53b021844f0.r2.cloudflarestorage.com
+R2_BUCKET: myxlf
+R2_PUBLIC_BASE_URL: https://myxlf.helloswx.top
+```
+
+只需要配置两个 GitHub Secrets：
+
+| Secret | 说明 |
+| --- | --- |
+| `R2_ACCESS_KEY_ID` | R2 API 令牌的 Access Key ID |
+| `R2_SECRET_ACCESS_KEY` | R2 API 令牌的 Secret Access Key |
+
+客户端默认从 `https://myxlf.helloswx.top/manifest.json` 读取清单，可在 [`lib/config.dart`](lib/config.dart) 修改，或在构建时用 `--dart-define=XLF_UPDATE_MANIFEST_URL=...` 覆盖。清单格式、R2 创建步骤、CORS 与故障排查见 **[docs/updates.md](docs/updates.md)**。
 
 ### iOS 侧载
 

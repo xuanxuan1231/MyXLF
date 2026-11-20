@@ -47,6 +47,8 @@ analysis_benchmark.json
 .pub-preload-cache/
 .pub/
 build/
+# 发版产物与生成的更新清单（CI 中临时使用，不应提交）
+/dist/
 flutter_*.png
 linked_*.ds
 unlinked.ds

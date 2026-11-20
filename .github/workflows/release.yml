@@ -66,6 +66,12 @@ env:
   # 可选仓库变量：app-store（默认）/ ad-hoc / enterprise
   IOS_EXPORT_METHOD: ${{ vars.IOS_EXPORT_METHOD || 'app-store' }}
 
+  # Cloudflare R2 公共配置（不包含密钥，可直接写在仓库里）。
+  # 只有 R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY 需要放到 GitHub Secrets。
+  R2_ENDPOINT: https://66c00241227771096180f53b021844f0.r2.cloudflarestorage.com
+  R2_BUCKET: myxlf
+  R2_PUBLIC_BASE_URL: https://myxlf.helloswx.top
+
 jobs:
   prepare:
     name: 解析版本
@@ -74,6 +80,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      manifest_url: ${{ steps.version.outputs.manifest_url }}
 
     steps:
       - name: 检出代码
@@ -103,6 +110,9 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          # 构建时把清单地址写进客户端；公共配置来自 workflow 顶部的 env。
+          manifest_url="${R2_PUBLIC_BASE_URL%/}/manifest.json"
+          echo "manifest_url=$manifest_url" >> "$GITHUB_OUTPUT"
           echo "构建版本：MyXLF v$version" >> "$GITHUB_STEP_SUMMARY"
 
   build-android:
@@ -162,16 +172,32 @@ jobs:
         run: echo "::warning::未配置 Android 签名密钥，本次 Release 将使用 debug 签名。请配置 ANDROID_KEYSTORE_BASE64、ANDROID_KEYSTORE_PASSWORD、ANDROID_KEY_ALIAS、ANDROID_KEY_PASSWORD。"
 
       - name: 构建 APK
+        env:
+          MANIFEST_URL: ${{ needs.prepare.outputs.manifest_url }}
         run: |
+          set -euo pipefail
+          dart_define=""
+          if [ -n "${MANIFEST_URL:-}" ]; then
+            dart_define="--dart-define=XLF_UPDATE_MANIFEST_URL=$MANIFEST_URL"
+          fi
           flutter build apk --release \
             --build-name="$APP_VERSION" \
-            --build-number="$GITHUB_RUN_NUMBER"
+            --build-number="$GITHUB_RUN_NUMBER" \
+            $dart_define
 
       - name: 构建 AAB
+        env:
+          MANIFEST_URL: ${{ needs.prepare.outputs.manifest_url }}
         run: |
+          set -euo pipefail
+          dart_define=""
+          if [ -n "${MANIFEST_URL:-}" ]; then
+            dart_define="--dart-define=XLF_UPDATE_MANIFEST_URL=$MANIFEST_URL"
+          fi
           flutter build appbundle --release \
             --build-name="$APP_VERSION" \
-            --build-number="$GITHUB_RUN_NUMBER"
+            --build-number="$GITHUB_RUN_NUMBER" \
+            $dart_define
 
       - name: 整理 Android 产物
         run: |
@@ -293,19 +319,34 @@ jobs:
           FLUTTER_XCODE_CODE_SIGN_STYLE: Manual
           FLUTTER_XCODE_CODE_SIGN_IDENTITY: Apple Distribution
           FLUTTER_XCODE_PROVISIONING_PROFILE_SPECIFIER: ${{ secrets.IOS_PROVISIONING_PROFILE_SPECIFIER }}
+          MANIFEST_URL: ${{ needs.prepare.outputs.manifest_url }}
         run: |
+          set -euo pipefail
+          dart_define=""
+          if [ -n "${MANIFEST_URL:-}" ]; then
+            dart_define="--dart-define=XLF_UPDATE_MANIFEST_URL=$MANIFEST_URL"
+          fi
           flutter build ipa --release \
             --build-name="$APP_VERSION" \
             --build-number="$GITHUB_RUN_NUMBER" \
-            --export-method="$IOS_EXPORT_METHOD"
+            --export-method="$IOS_EXPORT_METHOD" \
+            $dart_define
 
       - name: 构建未签名 iOS App
         if: steps.signing.outputs.signed != 'true'
+        env:
+          MANIFEST_URL: ${{ needs.prepare.outputs.manifest_url }}
         run: |
+          set -euo pipefail
+          dart_define=""
+          if [ -n "${MANIFEST_URL:-}" ]; then
+            dart_define="--dart-define=XLF_UPDATE_MANIFEST_URL=$MANIFEST_URL"
+          fi
           flutter build ios --release \
             --build-name="$APP_VERSION" \
             --build-number="$GITHUB_RUN_NUMBER" \
-            --no-codesign
+            --no-codesign \
+            $dart_define
 
       - name: 整理 iOS 产物
         env:
@@ -379,7 +420,15 @@ jobs:
       - name: 安装依赖
         run: flutter pub get --enforce-lockfile
       - name: 构建 Windows
-        run: flutter build windows --release --build-name="$env:APP_VERSION" --build-number="$env:GITHUB_RUN_NUMBER"
+        shell: pwsh
+        env:
+          MANIFEST_URL: ${{ needs.prepare.outputs.manifest_url }}
+        run: |
+          $defines = @()
+          if ($env:MANIFEST_URL) {
+            $defines += "--dart-define=XLF_UPDATE_MANIFEST_URL=$env:MANIFEST_URL"
+          }
+          flutter build windows --release --build-name="$env:APP_VERSION" --build-number="$env:GITHUB_RUN_NUMBER" @defines
       - name: 整理 Windows 产物
         shell: pwsh
         run: |
@@ -419,7 +468,18 @@ jobs:
       - name: 安装依赖
         run: flutter pub get --enforce-lockfile
       - name: 构建 macOS
-        run: flutter build macos --release --build-name="$APP_VERSION" --build-number="$GITHUB_RUN_NUMBER"
+        env:
+          MANIFEST_URL: ${{ needs.prepare.outputs.manifest_url }}
+        run: |
+          set -euo pipefail
+          dart_define=""
+          if [ -n "${MANIFEST_URL:-}" ]; then
+            dart_define="--dart-define=XLF_UPDATE_MANIFEST_URL=$MANIFEST_URL"
+          fi
+          flutter build macos --release \
+            --build-name="$APP_VERSION" \
+            --build-number="$GITHUB_RUN_NUMBER" \
+            $dart_define
       - name: 整理 macOS 产物
         run: |
           set -euo pipefail
@@ -464,7 +524,18 @@ jobs:
       - name: 安装依赖
         run: flutter pub get --enforce-lockfile
       - name: 构建 Linux
-        run: flutter build linux --release --build-name="$APP_VERSION" --build-number="$GITHUB_RUN_NUMBER"
+        env:
+          MANIFEST_URL: ${{ needs.prepare.outputs.manifest_url }}
+        run: |
+          set -euo pipefail
+          dart_define=""
+          if [ -n "${MANIFEST_URL:-}" ]; then
+            dart_define="--dart-define=XLF_UPDATE_MANIFEST_URL=$MANIFEST_URL"
+          fi
+          flutter build linux --release \
+            --build-name="$APP_VERSION" \
+            --build-number="$GITHUB_RUN_NUMBER" \
+            $dart_define
       - name: 整理 Linux 产物
         run: |
           set -euo pipefail
@@ -485,7 +556,12 @@ jobs:
     if: ${{ always() && needs.prepare.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.publish_release) }}
     needs: [prepare, build-android, build-ios, build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
+    env:
+      APP_VERSION: ${{ needs.prepare.outputs.version }}
+      APP_BUILD: ${{ github.run_number }}
+      # 同一版本重跑时使用不同的对象路径，避免 immutable 缓存返回旧文件。
+      APP_REVISION: ${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
       - name: 检出代码
@@ -559,6 +635,95 @@ jobs:
           fi
           cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
           cat release-notes.md
+
+      - name: 生成更新清单
+        id: r2
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          # 端点 / 桶名 / 公开域名已写在 workflow 顶部；这里只读取访问密钥。
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${R2_ACCESS_KEY_ID:-}" ] && [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
+            echo "::warning::未配置 R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY，跳过更新清单与安装包发布；客户端将无法通过 manifest 检查到本次更新。"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ]; then
+            echo "::error::Cloudflare R2 访问密钥不完整，请同时配置 R2_ACCESS_KEY_ID 与 R2_SECRET_ACCESS_KEY"
+            exit 1
+          fi
+          for name in R2_ENDPOINT R2_BUCKET R2_PUBLIC_BASE_URL; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::workflow 顶部的 R2 公共配置缺失：$name"
+              exit 1
+            fi
+          done
+          python3 scripts/publish_update_manifest.py \
+            --dist dist \
+            --version "$APP_VERSION" \
+            --build "$APP_BUILD" \
+            --revision "$APP_REVISION" \
+            --notes release-notes.md \
+            --base-url "$R2_PUBLIC_BASE_URL" \
+            --release-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}" \
+            --output dist/manifest.json
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+          echo "更新清单：${R2_PUBLIC_BASE_URL%/}/manifest.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 上传到 Cloudflare R2
+        if: steps.r2.outputs.configured == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # 新版 AWS CLI 默认使用 CRC64NVME，部分 R2 端点会拒绝；按需计算即可。
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          set -euo pipefail
+          endpoint="$R2_ENDPOINT"
+          version_dir="releases/v${APP_VERSION}/${APP_REVISION}"
+
+          # 先上传版本化产物（长期缓存），最后更新根清单，避免客户端读到指向缺失文件的清单。
+          for file in dist/*; do
+            [ -f "$file" ] || continue
+            name="$(basename "$file")"
+            case "$name" in
+              *.aab|SHA256SUMS-*|manifest.json) continue ;;
+            esac
+            case "$name" in
+              *.apk) content_type="application/vnd.android.package-archive" ;;
+              *.zip) content_type="application/zip" ;;
+              *.tar.gz) content_type="application/gzip" ;;
+              *.ipa) content_type="application/octet-stream" ;;
+              *) content_type="application/octet-stream" ;;
+            esac
+            aws s3 cp "$file" "s3://${R2_BUCKET}/${version_dir}/${name}" \
+              --endpoint-url "$endpoint" \
+              --region auto \
+              --content-type "$content_type" \
+              --cache-control "public, max-age=31536000, immutable"
+          done
+
+          aws s3 cp dist/manifest.json "s3://${R2_BUCKET}/${version_dir}/manifest.json" \
+            --endpoint-url "$endpoint" \
+            --region auto \
+            --content-type "application/json; charset=utf-8" \
+            --cache-control "public, max-age=31536000, immutable"
+
+          if [[ "$APP_VERSION" == *-* ]]; then
+            # 预发布版本只保留版本化快照，不覆盖稳定版清单，避免正式用户收到 beta。
+            echo "预发布版本 $APP_VERSION：跳过根目录 manifest.json"
+          else
+            aws s3 cp dist/manifest.json "s3://${R2_BUCKET}/manifest.json" \
+              --endpoint-url "$endpoint" \
+              --region auto \
+              --content-type "application/json; charset=utf-8" \
+              --cache-control "public, max-age=60, must-revalidate"
+            echo "已上传至 ${R2_PUBLIC_BASE_URL%/}/manifest.json"
+          fi
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v3
