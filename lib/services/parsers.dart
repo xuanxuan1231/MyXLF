@@ -286,6 +286,15 @@ class Parsers {
       }
     }
 
+    String? peerNote;
+    for (final span in doc.querySelectorAll('span.paragraph_1')) {
+      final t = _clean(span.text);
+      if (t.startsWith('注：') && t.contains('同层次学生')) {
+        peerNote = t;
+        break;
+      }
+    }
+
     // ---- 图表图片（预留入口） ----
     final chartImages = <String>[];
     for (final img in doc.querySelectorAll('img')) {
@@ -307,6 +316,7 @@ class Parsers {
       weakSubjectComment: weakSubjectComment,
       rankText: rankText,
       rankDescription: rankDescription,
+      peerNote: peerNote,
       subjects: subjectLinks,
       chartImages: chartImages,
     );
@@ -414,9 +424,10 @@ class Parsers {
       }
     }
 
-    // ---- 卷面得失分 ----
+    // ---- 卷面得失分 / 题型掌握 ----
     String? gainLossText;
     String? typeComment;
+    String? typeMasteryComment;
     for (final t in doc.querySelectorAll('table')) {
       final text = _clean(t.text);
       if (text.contains('失的') && text.contains('分') && text.contains('题目')) {
@@ -425,6 +436,21 @@ class Parsers {
         typeComment = text;
       }
     }
+    for (final span in doc.querySelectorAll('span.stu_rpt_content')) {
+      final t = _clean(span.text);
+      if (t.contains('类型的试题')) {
+        typeMasteryComment = t;
+        break;
+      }
+    }
+
+    // ---- 知识点掌握 / 学科能力水平 ----
+    final knowledge = _masteryInsight(
+      _masterySpan(doc, const ['考查的知识点', '知识的掌握']),
+    );
+    final ability = _masteryInsight(
+      _masterySpan(doc, const ['考查的学科能力', '学科能力的分析', '如下能力']),
+    );
 
     // ---- 图表（预留入口） ----
     final chartImages = <String>[];
@@ -446,6 +472,13 @@ class Parsers {
       gainLossText: gainLossText,
       gainLossStats: parseGainLossStats(gainLossText),
       typeComment: typeComment,
+      typeMasteryComment: typeMasteryComment,
+      knowledgeStrengths: knowledge.strengths,
+      knowledgeWeaknesses: knowledge.weaknesses,
+      knowledgeComment: knowledge.comment,
+      abilityStrengths: ability.strengths,
+      abilityWeaknesses: ability.weaknesses,
+      abilityComment: ability.comment,
       chartImages: chartImages,
       answerSheet: parseAnswerSheetForm(html),
     );
@@ -796,6 +829,57 @@ class Parsers {
         .replaceAll('\u00a0', ' ') // &nbsp;
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+  }
+
+  /// 找到包含指定关键词的 `stu_rpt_content` 说明块。
+  static Element? _masterySpan(Document doc, List<String> markers) {
+    for (final span in doc.querySelectorAll('span.stu_rpt_content')) {
+      final text = _clean(span.text);
+      if (markers.any(text.contains)) return span;
+    }
+    return null;
+  }
+
+  /// 解析「知识点掌握 / 学科能力水平」说明块。
+  ///
+  /// 平台用 `blue_txt2` 标记掌握较好的项、`red_txt2` 标记需要加强的项；
+  /// 没有逐项列表时保留整段说明（如「没有为本试卷设置……」会被过滤）。
+  static ({List<String> strengths, List<String> weaknesses, String? comment})
+  _masteryInsight(Element? span) {
+    if (span == null) {
+      return (strengths: const [], weaknesses: const [], comment: null);
+    }
+
+    final strengths = <String>[];
+    final weaknesses = <String>[];
+    for (final item in span.querySelectorAll('li')) {
+      final text = _clean(item.text);
+      if (text.isEmpty) continue;
+      if (_hasAncestorClass(item, 'red_txt2')) {
+        weaknesses.add(text);
+      } else {
+        strengths.add(text);
+      }
+    }
+
+    String? comment;
+    if (strengths.isEmpty && weaknesses.isEmpty) {
+      final text = _clean(span.text);
+      if (text.isNotEmpty && !text.contains('没有为本试卷设置')) {
+        comment = text;
+      }
+    }
+
+    return (strengths: strengths, weaknesses: weaknesses, comment: comment);
+  }
+
+  static bool _hasAncestorClass(Element element, String className) {
+    Element? current = element.parent;
+    while (current != null) {
+      if (current.classes.contains(className)) return true;
+      current = current.parent;
+    }
+    return false;
   }
 
   /// 提取优势 / 弱势科目单元格中的科目名。

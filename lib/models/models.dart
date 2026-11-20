@@ -371,6 +371,7 @@ class TotalReport {
     this.weakSubjectComment,
     this.rankText,
     this.rankDescription,
+    this.peerNote,
     required this.subjects,
     this.chartImages = const [],
   });
@@ -405,6 +406,9 @@ class TotalReport {
   /// 「关注成绩所处位置情况」说明文字。
   final String? rankDescription;
 
+  /// 「同层次学生」口径说明。
+  final String? peerNote;
+
   /// 各科目入口。
   final List<SubjectLink> subjects;
 
@@ -425,26 +429,120 @@ class TotalReport {
   /// 「3 层次」样式的层次标签。
   String? get totalLevelLabel => totalLevel == null ? null : '$totalLevel 层次';
 
+  /// 总分进入的下一层次临界区（例如「2层次，进入1层次临界区」时为 1）。
+  ///
+  /// 平台只在部分考试中给出临界信息；没有该信息时返回 null。
+  int? get totalCriticalLevel {
+    final match = RegExp(
+      r'总分处于\s*\d+\s*层次[，,、\s]*进入\s*(\d+)\s*层次临界区',
+    ).firstMatch(rankText ?? '');
+    return match == null ? null : int.tryParse(match.group(1)!);
+  }
+
+  /// 「进入 1 层次临界区」样式的总分临界提示。
+  String? get totalCriticalLabel =>
+      totalCriticalLevel == null ? null : '进入 $totalCriticalLevel 层次临界区';
+
   /// 各科目所处层次（科目名 → 层次），来自「3层次科目：英语」这样的分组文本。
   ///
   /// 平台科目入口参数里的 `levelName` 在多科目考试中可能统一为总分层次，
   /// 这里以报告中按层次分组的科目列表为准。
+  ///
+  /// 分组文本中可能夹带临界提示，例如：
+  /// `2层次科目：物理、化学，其中化学进入1层次临界区，加油！`
+  /// 这些说明不能当成科目名，否则后续分组会整体错位。
   Map<String, int> get subjectLevels {
     final levels = <String, int>{};
-    final regex = RegExp(r'(\d+)\s*层次科目[：:]\s*([^。；;\n]+)');
-    for (final match in regex.allMatches(rankText ?? '')) {
-      final level = int.tryParse(match.group(1)!);
-      if (level == null) continue;
-      for (final name in match.group(2)!.split(RegExp(r'[、,，/]'))) {
-        final subject = name.trim();
-        if (subject.isNotEmpty) levels[subject] = level;
+    for (final group in _subjectLevelGroups) {
+      for (final name in group.subjects) {
+        levels.putIfAbsent(name, () => group.level);
+      }
+    }
+    return levels;
+  }
+
+  /// 各科目进入的下一层次临界区（科目名 → 临界层次）。
+  ///
+  /// 例如「其中化学进入1层次临界区」表示化学当前处于 2 层次，
+  /// 但已经接近 1 层次。没有临界信息时返回空表。
+  Map<String, int> get subjectCriticalLevels {
+    final levels = <String, int>{};
+    for (final group in _subjectLevelGroups) {
+      final critical = group.criticalLevel;
+      if (critical == null) continue;
+      for (final name in group.criticalSubjects) {
+        levels.putIfAbsent(name, () => critical);
       }
     }
     return levels;
   }
 
   /// 指定科目所处的层次，无法解析时为 null。
-  int? subjectLevel(String subjectName) => subjectLevels[subjectName];
+  int? subjectLevel(String subjectName) {
+    final target = normalizeSubjectName(subjectName);
+    for (final entry in subjectLevels.entries) {
+      if (normalizeSubjectName(entry.key) == target) return entry.value;
+    }
+    return null;
+  }
+
+  /// 指定科目进入的临界层次，没有临界信息时为 null。
+  int? subjectCriticalLevel(String subjectName) {
+    final target = normalizeSubjectName(subjectName);
+    for (final entry in subjectCriticalLevels.entries) {
+      if (normalizeSubjectName(entry.key) == target) return entry.value;
+    }
+    return null;
+  }
+
+  /// 把「N层次科目：……，其中X进入M层次临界区」拆成结构化分组。
+  Iterable<_SubjectLevelGroup> get _subjectLevelGroups sync* {
+    final text = rankText ?? '';
+    final matches = RegExp(r'(\d+)\s*层次科目[：:]').allMatches(text).toList();
+    for (var i = 0; i < matches.length; i++) {
+      final level = int.tryParse(matches[i].group(1)!);
+      if (level == null) continue;
+
+      final start = matches[i].end;
+      final end = i + 1 < matches.length ? matches[i + 1].start : text.length;
+      final segment = text.substring(start, end);
+
+      // 临界提示以「其中」开头，和科目列表之间可能用逗号或句号分隔。
+      final criticalIndex = segment.indexOf('其中');
+      final subjectPart = criticalIndex < 0
+          ? segment
+          : segment.substring(0, criticalIndex);
+      final criticalPart = criticalIndex < 0
+          ? ''
+          : segment.substring(criticalIndex + '其中'.length);
+
+      final criticalMatch = RegExp(
+        r'(.+?)进入\s*(\d+)\s*层次临界区',
+      ).firstMatch(criticalPart);
+      final criticalLevel = criticalMatch == null
+          ? null
+          : int.tryParse(criticalMatch.group(2)!);
+
+      yield _SubjectLevelGroup(
+        level: level,
+        subjects: _splitLevelSubjectNames(subjectPart),
+        criticalLevel: criticalLevel,
+        criticalSubjects: criticalMatch == null
+            ? const []
+            : _splitLevelSubjectNames(criticalMatch.group(1)!),
+      );
+    }
+  }
+
+  /// 拆分层次分组里的科目名，去掉句号、逗号、「加油」等说明文字。
+  List<String> _splitLevelSubjectNames(String text) {
+    return text
+        .split(RegExp(r'[、,，/；;。！!\s]+'))
+        .map((name) => name.trim())
+        .where((name) => name.isNotEmpty)
+        .where((name) => !name.contains('层次') && !name.contains('临界'))
+        .toList();
+  }
 
   /// 按科目名查找可跳转的科目分析入口；忽略空白与全角括号差异。
   SubjectLink? linkForSubject(String subjectName) {
@@ -464,6 +562,21 @@ class TotalReport {
         if (entry.value == level) entry.key,
     ];
   }
+}
+
+/// 「N层次科目」分组及其临界提示。
+class _SubjectLevelGroup {
+  const _SubjectLevelGroup({
+    required this.level,
+    required this.subjects,
+    this.criticalLevel,
+    this.criticalSubjects = const [],
+  });
+
+  final int level;
+  final List<String> subjects;
+  final int? criticalLevel;
+  final List<String> criticalSubjects;
 }
 
 /// 卷面作答中某一道小题的得分情况。
@@ -705,6 +818,13 @@ class SubjectReport {
     this.gainLossText,
     this.gainLossStats = const [],
     this.typeComment,
+    this.typeMasteryComment,
+    this.knowledgeStrengths = const [],
+    this.knowledgeWeaknesses = const [],
+    this.knowledgeComment,
+    this.abilityStrengths = const [],
+    this.abilityWeaknesses = const [],
+    this.abilityComment,
     this.chartImages = const [],
     this.answerSheet,
   });
@@ -730,11 +850,44 @@ class SubjectReport {
   /// 各题型得分情况文字。
   final String? typeComment;
 
+  /// 题型掌握情况说明，例如「你能很好地掌握……但在……还存在差距」。
+  final String? typeMasteryComment;
+
+  /// 掌握明显好于同层次学生的知识点。
+  final List<String> knowledgeStrengths;
+
+  /// 掌握不太扎实、需要加强的知识点。
+  final List<String> knowledgeWeaknesses;
+
+  /// 知识点掌握情况说明（没有逐项列表时展示）。
+  final String? knowledgeComment;
+
+  /// 表现较强的学科能力。
+  final List<String> abilityStrengths;
+
+  /// 需要加强的学科能力。
+  final List<String> abilityWeaknesses;
+
+  /// 学科能力水平说明（没有逐项列表时展示）。
+  final String? abilityComment;
+
   /// 图表图片地址（预留入口）。
   final List<String> chartImages;
 
   /// 答卷表单字段（用于查看答题卡原图）。
   final AnswerSheetForm? answerSheet;
+
+  /// 是否有可展示的知识点掌握信息。
+  bool get hasKnowledgeInsight =>
+      knowledgeStrengths.isNotEmpty ||
+      knowledgeWeaknesses.isNotEmpty ||
+      (knowledgeComment ?? '').isNotEmpty;
+
+  /// 是否有可展示的学科能力信息。
+  bool get hasAbilityInsight =>
+      abilityStrengths.isNotEmpty ||
+      abilityWeaknesses.isNotEmpty ||
+      (abilityComment ?? '').isNotEmpty;
 
   /// 失分（满分 - 得分）。
   double get lostScore => fullScore > score ? fullScore - score : 0;

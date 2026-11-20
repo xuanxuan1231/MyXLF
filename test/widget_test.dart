@@ -167,14 +167,53 @@ void main() {
         3层次科目：<span class='blue_txt'>英语</span>。<br/>
         4层次科目：<span class='blue_txt'>语文、数学、物理、化学、历史</span>。<br/>
       </span>
+      <span class="paragraph_1">注：此处及下面所有的“同层次学生”均指总分与你同处一个层次的学生。</span>
       </body></html>
       ''');
       expect(report.totalLevel, 4);
       expect(report.advantageSubjects, '英语');
       expect(report.weakSubjects, '物理、化学、历史');
+      expect(report.peerNote, contains('同层次学生'));
       expect(report.subjectLevel('英语'), 3);
       expect(report.subjectLevel('数学'), 4);
       expect(report.levelSubjects, ['语文', '数学', '物理', '化学', '历史']);
+    });
+
+    test('临界提示不会污染层次分组，历史科目层次正确', () {
+      final report = TotalReport(
+        examName: '2026-2027学年第一学期高一期中考试-行知',
+        studentName: '钱思成',
+        scoreReport: ScoreReport(
+          examName: '期中考试',
+          studentName: '钱思成',
+          subjects: const [],
+        ),
+        rankText:
+            '你在年级中的位置： 总分处于2层次，进入1层次临界区，加油!'
+            '1层次科目：英语、政治、地理。'
+            '2层次科目：物理、化学，其中化学进入1层次临界区，加油！'
+            '3层次科目：语文、生物、历史。'
+            '4层次科目：数学，其中数学进入3层次临界区，加油！',
+        subjects: const [],
+      );
+
+      expect(report.totalLevel, 2);
+      expect(report.totalCriticalLevel, 1);
+      expect(report.totalCriticalLabel, '进入 1 层次临界区');
+
+      // 历史属于 3 层次，不能被上一组的「其中……」说明吞掉而回退成 2 层次。
+      expect(report.subjectLevel('历史'), 3);
+      expect(report.subjectLevel('语文'), 3);
+      expect(report.subjectLevel('生物'), 3);
+      expect(report.subjectLevel('数学'), 4);
+      expect(report.subjectLevels.keys, isNot(contains('其中化学进入1层次临界区')));
+      expect(report.subjectLevels.keys, isNot(contains('加油！3层次科目：语文')));
+
+      expect(report.subjectCriticalLevel('化学'), 1);
+      expect(report.subjectCriticalLevel('数学'), 3);
+      expect(report.subjectCriticalLevel('语文'), isNull);
+      expect(report.subjectCriticalLevels, {'化学': 1, '数学': 3});
+      expect(report.levelSubjects, ['物理', '化学']);
     });
 
     test('统计满分 / 部分得分 / 零分题数', () {
@@ -299,6 +338,54 @@ void main() {
       expect(q.gradeAverageScore, isNull);
       expect(q.gradeScoreRate, isNull);
     });
+    test('解析题型掌握、知识点与学科能力', () {
+      final report = Parsers.parseSubjectReport('''
+      <html><body>
+      <div class="text_2">期中考试</div>
+      <div class="text_12">张三 同学数学卷面分析报告</div>
+      <div class="text_13">数学试卷满分100分，你的卷面成绩是80分。</div>
+      <table><tr><td>
+        <span class="stu_rpt_content">你能很好地掌握“选择题”类型的试题的作答，但在“解答题”类型的试题上，你还存在一定的差距，需要加强对这类题型的训练。</span>
+      </td></tr></table>
+      <table><tr><td>
+        <span class="stu_rpt_content">通过对各试题考查的知识点的分析，发现你对如下知识的掌握明显好于的其他同学：<br/>
+          <span class="blue_txt2"><div><li>集合（3分）</li><li>函数（4分）</li></div></span>
+          <br/>但是对如下知识的掌握不太扎实：<br/>
+          <span class="red_txt2"><div><li>导数（满分5分失3分）</li></div></span>
+          <br/>希望你能加强对这些知识的理解和掌握。
+        </span>
+      </td></tr></table>
+      <table><tr><td>
+        <span class="stu_rpt_content">通过对各试题考查的学科能力的分析，发现你如下能力较强：<br/>
+          <span class="blue_txt2"><div><li>分析（5分）</li></div></span>
+          <br/><br/>如下能力稍弱，需要加强：<br/>
+          <span class="red_txt2"><div><li>计算（满分6分失2分）</li></div></span>
+        </span>
+      </td></tr></table>
+      </body></html>
+      ''');
+
+      expect(report.typeMasteryComment, contains('你能很好地掌握'));
+      expect(report.knowledgeStrengths, ['集合（3分）', '函数（4分）']);
+      expect(report.knowledgeWeaknesses, ['导数（满分5分失3分）']);
+      expect(report.knowledgeComment, isNull);
+      expect(report.abilityStrengths, ['分析（5分）']);
+      expect(report.abilityWeaknesses, ['计算（满分6分失2分）']);
+      expect(report.hasKnowledgeInsight, isTrue);
+      expect(report.hasAbilityInsight, isTrue);
+    });
+
+    test('未设置学科能力信息时不生成空板块', () {
+      final report = Parsers.parseSubjectReport('''
+      <html><body>
+      <span class="stu_rpt_content">没有为本试卷设置试题考查的学科能力信息。</span>
+      </body></html>
+      ''');
+      expect(report.abilityStrengths, isEmpty);
+      expect(report.abilityWeaknesses, isEmpty);
+      expect(report.abilityComment, isNull);
+      expect(report.hasAbilityInsight, isFalse);
+    });
   });
 
   group('登录历史解析', () {
@@ -393,11 +480,7 @@ void main() {
     test('安全存储写入失败时保留旧数据并报告错误', () async {
       SharedPreferences.setMockInitialValues({
         'xlf_accounts': jsonEncode([
-          {
-            'username': '张三',
-            'password': 'legacy-secret',
-            'isDefault': true,
-          },
+          {'username': '张三', 'password': 'legacy-secret', 'isDefault': true},
         ]),
       });
       final vault = _MemoryVault()..failWrites = true;
@@ -417,11 +500,9 @@ void main() {
       final vault = _MemoryVault();
       final store = AccountStore.withVault(vault);
 
-      await store.addOrUpdate(Account(
-        username: '李四',
-        password: 'new-secret',
-        schoolName: '测试中学',
-      ));
+      await store.addOrUpdate(
+        Account(username: '李四', password: 'new-secret', schoolName: '测试中学'),
+      );
       expect(vault.data['李四'], 'new-secret');
 
       final prefs = await SharedPreferences.getInstance();

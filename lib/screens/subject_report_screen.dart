@@ -15,11 +15,22 @@ import '../widgets/report_split_layout.dart';
 import '../widgets/score_rate_chart.dart';
 import 'answer_sheet_screen.dart';
 
-/// 学科分析报告（成绩概况 + 答卷 + 卷面作答 + 得失分分析）。
+/// 学科分析报告（成绩概况 + 答卷 + 卷面作答 + 得失分分析 + 知识点 / 能力掌握）。
 class SubjectReportScreen extends StatefulWidget {
-  const SubjectReportScreen({super.key, required this.link});
+  const SubjectReportScreen({
+    super.key,
+    required this.link,
+    this.level,
+    this.criticalLevel,
+  });
 
   final SubjectLink link;
+
+  /// 学科所处层次（来自总分分析报告，平台入口参数可能不准确）。
+  final int? level;
+
+  /// 学科进入的更高层次临界区。
+  final int? criticalLevel;
 
   @override
   State<SubjectReportScreen> createState() => _SubjectReportScreenState();
@@ -136,6 +147,43 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [_sectionTitle('答卷'), _buildAnswerSheetSection(report)],
         ),
+      // 知识点 / 能力属于成绩概况，放在左栏，避免被超长的逐题作答淹没。
+      if ((report.typeMasteryComment ?? '').isNotEmpty)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionTitle('题型掌握'),
+            _card(_insightText(report.typeMasteryComment!)),
+          ],
+        ),
+      if (report.hasKnowledgeInsight)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionTitle('知识点掌握'),
+            _card(
+              _buildMastery(
+                strengths: report.knowledgeStrengths,
+                weaknesses: report.knowledgeWeaknesses,
+                comment: report.knowledgeComment,
+              ),
+            ),
+          ],
+        ),
+      if (report.hasAbilityInsight)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionTitle('学科能力'),
+            _card(
+              _buildMastery(
+                strengths: report.abilityStrengths,
+                weaknesses: report.abilityWeaknesses,
+                comment: report.abilityComment,
+              ),
+            ),
+          ],
+        ),
     ];
     final rightSections = <Widget>[
       Column(
@@ -160,8 +208,8 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
         ),
     ];
 
-    // 宽屏：左栏固定显示成绩概况与答卷入口，右栏独立滚动逐题作答、
-    // 得失分分析与平台图表；左栏过高时可以单独滚动。
+    // 宽屏：左栏固定显示成绩概况、答卷入口与知识点 / 能力掌握，右栏独立
+    // 滚动逐题作答、得失分分析与平台图表；左栏过高时可以单独滚动。
     return ReportSplitLayout(
       leftSections: leftSections,
       rightSections: rightSections,
@@ -230,10 +278,65 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
+                    if (widget.level != null ||
+                        widget.criticalLevel != null) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          if (widget.level != null)
+                            _heroTag(
+                              '${widget.level}层次',
+                              scheme.secondaryContainer,
+                              scheme.onSecondaryContainer,
+                            ),
+                          if (widget.criticalLevel != null)
+                            _heroTag(
+                              '${widget.criticalLevel}层次临界',
+                              scheme.primaryContainer,
+                              scheme.onPrimaryContainer,
+                              icon: Icons.trending_up,
+                            ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _heroTag(
+    String label,
+    Color background,
+    Color foreground, {
+    IconData? icon,
+  }) {
+    final textTheme = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 13, color: foreground),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            label,
+            style: textTheme.labelMedium?.copyWith(
+              color: foreground,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -306,10 +409,14 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final stats = report.gainLossStats;
-    final typeComment = (report.typeComment ?? '').trim().replaceAll(
-      RegExp(r'[。；;]+$'),
-      '',
-    );
+
+    String trimComment(String? value) =>
+        (value ?? '').trim().replaceAll(RegExp(r'[。；;]+$'), '');
+    final typeComment = trimComment(report.typeComment);
+    final commentLines = <({IconData icon, String text})>[
+      if (typeComment.isNotEmpty)
+        (icon: Icons.insights_outlined, text: typeComment),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -350,19 +457,117 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
           const SizedBox(height: 8),
           ScoreRateChart(questions: report.questions),
         ],
-        if (typeComment.isNotEmpty) ...[
+        if (commentLines.isNotEmpty) ...[
           const SizedBox(height: 12),
           Divider(height: 1, color: scheme.outlineVariant),
           const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.insights_outlined, size: 16, color: scheme.primary),
-              const SizedBox(width: 8),
-              Expanded(child: Text(typeComment, style: textTheme.bodyMedium)),
-            ],
-          ),
+          for (var i = 0; i < commentLines.length; i++) ...[
+            if (i > 0) const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(commentLines[i].icon, size: 16, color: scheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    commentLines[i].text,
+                    style: textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
+      ],
+    );
+  }
+
+  /// 单段说明文字（题型掌握等）。
+  Widget _insightText(String text) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.school_outlined, size: 16, color: scheme.primary),
+        const SizedBox(width: 8),
+        Expanded(child: Text(text, style: textTheme.bodyMedium)),
+      ],
+    );
+  }
+
+  /// 知识点 / 学科能力的逐项掌握情况。
+  Widget _buildMastery({
+    required List<String> strengths,
+    required List<String> weaknesses,
+    String? comment,
+  }) {
+    final textTheme = Theme.of(context).textTheme;
+    if (strengths.isEmpty && weaknesses.isEmpty) {
+      return Text(comment ?? '', style: textTheme.bodyMedium);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (strengths.isNotEmpty)
+          _masteryGroup('掌握较好', strengths, positive: true),
+        if (strengths.isNotEmpty && weaknesses.isNotEmpty)
+          const SizedBox(height: 14),
+        if (weaknesses.isNotEmpty)
+          _masteryGroup('需要加强', weaknesses, positive: false),
+      ],
+    );
+  }
+
+  Widget _masteryGroup(
+    String label,
+    List<String> items, {
+    required bool positive,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final appColors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final color = positive ? appColors.success : scheme.error;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              positive ? Icons.check_circle_outline : Icons.error_outline,
+              size: 16,
+              color: color,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: textTheme.titleSmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '${items.length} 项',
+              style: textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        for (final item in items)
+          Padding(
+            padding: const EdgeInsets.only(left: 22, bottom: 5),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('· ', style: textTheme.bodyMedium?.copyWith(color: color)),
+                Expanded(child: Text(item, style: textTheme.bodyMedium)),
+              ],
+            ),
+          ),
       ],
     );
   }
