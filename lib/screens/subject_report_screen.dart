@@ -10,16 +10,29 @@ import '../theme/responsive.dart';
 import '../widgets/chart_image.dart';
 import '../widgets/offline_notice.dart';
 import '../widgets/question_answers_section.dart';
+import '../widgets/report_insights_card.dart';
 import '../widgets/report_page_scaffold.dart';
 import '../widgets/report_split_layout.dart';
+import '../widgets/score_level_badge.dart';
 import '../widgets/score_rate_chart.dart';
 import 'answer_sheet_screen.dart';
 
-/// 学科分析报告（成绩概况 + 答卷 + 卷面作答 + 得失分分析）。
+/// 学科分析报告（成绩概况 + 答卷 + 卷面作答 + 得失分分析 + 知识点 / 能力掌握）。
 class SubjectReportScreen extends StatefulWidget {
-  const SubjectReportScreen({super.key, required this.link});
+  const SubjectReportScreen({
+    super.key,
+    required this.link,
+    this.level,
+    this.criticalLevel,
+  });
 
   final SubjectLink link;
+
+  /// 学科所处层次（来自总分分析报告，平台入口参数可能不准确）。
+  final int? level;
+
+  /// 学科进入的更高层次临界区。
+  final int? criticalLevel;
 
   @override
   State<SubjectReportScreen> createState() => _SubjectReportScreenState();
@@ -136,6 +149,20 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [_sectionTitle('答卷'), _buildAnswerSheetSection(report)],
         ),
+      // 题型 / 知识点 / 能力属于成绩概况，放在左栏并默认折叠，
+      // 避免长文本把成绩概况挤到屏幕外。
+      if (report.typeInsightComment != null ||
+          report.hasKnowledgeInsight ||
+          report.hasAbilityInsight)
+        ReportInsightsCard(
+          typeComment: report.typeInsightComment,
+          knowledgeStrengths: report.knowledgeStrengths,
+          knowledgeWeaknesses: report.knowledgeWeaknesses,
+          knowledgeComment: report.knowledgeComment,
+          abilityStrengths: report.abilityStrengths,
+          abilityWeaknesses: report.abilityWeaknesses,
+          abilityComment: report.abilityComment,
+        ),
     ];
     final rightSections = <Widget>[
       Column(
@@ -160,8 +187,8 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
         ),
     ];
 
-    // 宽屏：左栏固定显示成绩概况与答卷入口，右栏独立滚动逐题作答、
-    // 得失分分析与平台图表；左栏过高时可以单独滚动。
+    // 宽屏：左栏固定显示成绩概况、答卷入口与默认折叠的题型 / 知识点 / 能力，
+    // 右栏独立滚动逐题作答、得失分分析与平台图表；左栏过高时可以单独滚动。
     return ReportSplitLayout(
       leftSections: leftSections,
       rightSections: rightSections,
@@ -230,9 +257,14 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
+                    if (widget.criticalLevel != null) ...[
+                      const SizedBox(height: 6),
+                      CriticalLevelHint(level: widget.criticalLevel!),
+                    ],
                   ],
                 ),
               ),
+              if (widget.level != null) ScoreLevelBadge(level: widget.level!),
             ],
           ),
         ],
@@ -298,18 +330,21 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
 
   bool _hasGainLoss(SubjectReport report) {
     return report.gainLossStats.isNotEmpty ||
-        (report.gainLossText ?? '').isNotEmpty ||
-        (report.typeComment ?? '').isNotEmpty;
+        (report.gainLossText ?? '').isNotEmpty;
   }
 
   Widget _buildGainLoss(SubjectReport report) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final stats = report.gainLossStats;
-    final typeComment = (report.typeComment ?? '').trim().replaceAll(
-      RegExp(r'[。；;]+$'),
-      '',
-    );
+
+    String trimComment(String? value) =>
+        (value ?? '').trim().replaceAll(RegExp(r'[。；;]+$'), '');
+    final typeComment = trimComment(report.typeComment);
+    final commentLines = <({IconData icon, String text})>[
+      if (typeComment.isNotEmpty)
+        (icon: Icons.insights_outlined, text: typeComment),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -350,18 +385,26 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
           const SizedBox(height: 8),
           ScoreRateChart(questions: report.questions),
         ],
-        if (typeComment.isNotEmpty) ...[
+        if (commentLines.isNotEmpty) ...[
           const SizedBox(height: 12),
           Divider(height: 1, color: scheme.outlineVariant),
           const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.insights_outlined, size: 16, color: scheme.primary),
-              const SizedBox(width: 8),
-              Expanded(child: Text(typeComment, style: textTheme.bodyMedium)),
-            ],
-          ),
+          for (var i = 0; i < commentLines.length; i++) ...[
+            if (i > 0) const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(commentLines[i].icon, size: 16, color: scheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    commentLines[i].text,
+                    style: textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ],
     );
