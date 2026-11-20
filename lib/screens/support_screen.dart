@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
@@ -5,8 +7,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../config.dart';
 import '../services/support_service.dart';
+import '../services/telemetry.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_top_bar.dart';
+import '../widgets/support_status_chip.dart';
 import 'log_viewer_screen.dart';
 import 'new_support_ticket_screen.dart';
 import 'support_ticket_screen.dart';
@@ -19,19 +23,51 @@ class SupportScreen extends StatefulWidget {
   State<SupportScreen> createState() => _SupportScreenState();
 }
 
-class _SupportScreenState extends State<SupportScreen> {
+class _SupportScreenState extends State<SupportScreen>
+    with WidgetsBindingObserver {
   List<SupportTicket> _tickets = const [];
   bool _loading = true;
   SupportException? _error;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    // 停留在列表页时也定期同步状态 / 未读数，避免一直显示旧数据。
+    _refreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (!mounted || _loading) return;
+      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+        return;
+      }
+      if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
+      _load(silent: true);
+    });
   }
 
-  Future<void> _load() async {
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        !_loading &&
+        (ModalRoute.of(context)?.isCurrent ?? true)) {
+      _load(silent: true);
+    }
+  }
+
+  int get _unreadCount =>
+      _tickets.fold(0, (sum, ticket) => sum + ticket.unreadCount);
+
+  Future<void> _load({bool silent = false}) async {
     if (!SupportService.instance.isConfigured) {
+      if (silent) return;
       setState(() {
         _loading = false;
         _tickets = const [];
@@ -39,30 +75,49 @@ class _SupportScreenState extends State<SupportScreen> {
       });
       return;
     }
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final tickets = await SupportService.instance.listTickets();
       if (!mounted) return;
+      final sorted = [...tickets]..sort(_compareTickets);
       setState(() {
-        _tickets = tickets;
+        _tickets = sorted;
         _loading = false;
+        _error = null;
       });
     } on SupportException catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e;
         _loading = false;
+        // 后台静默刷新失败时不打扰已经展示出来的列表。
+        if (!silent || _tickets.isEmpty) _error = e;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = SupportException('加载工单失败：$e');
         _loading = false;
+        if (!silent || _tickets.isEmpty) {
+          _error = SupportException('加载工单失败：$e');
+        }
       });
     }
+  }
+
+  int _compareTickets(SupportTicket a, SupportTicket b) {
+    final aTime =
+        a.lastMessageAt ??
+        a.createdAt ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+    final bTime =
+        b.lastMessageAt ??
+        b.createdAt ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+    return bTime.compareTo(aTime);
   }
 
   Future<void> _openNewTicket() async {
@@ -73,7 +128,7 @@ class _SupportScreenState extends State<SupportScreen> {
       ),
     );
     if (!mounted) return;
-    await _load();
+    await _load(silent: _tickets.isNotEmpty);
   }
 
   Future<void> _openTicket(SupportTicket ticket) async {
@@ -88,7 +143,7 @@ class _SupportScreenState extends State<SupportScreen> {
       ),
     );
     if (!mounted) return;
-    await _load();
+    await _load(silent: _tickets.isNotEmpty);
   }
 
   Future<void> _openHelpDoc() async {
@@ -122,11 +177,16 @@ class _SupportScreenState extends State<SupportScreen> {
 
     return Scaffold(
       body: RefreshIndicator(
-        onRefresh: _load,
+        onRefresh: () => _load(),
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            const AppTopBar(title: '帮助与反馈', subtitle: '在线工单与使用文档'),
+            AppTopBar(
+              title: '帮助与反馈',
+              subtitle: _unreadCount > 0
+                  ? '$_unreadCount 条未读 · 在线工单'
+                  : '在线工单与使用文档',
+            ),
             SliverPadding(
               padding: EdgeInsets.fromLTRB(
                 16,
@@ -214,6 +274,30 @@ class _SupportScreenState extends State<SupportScreen> {
             ],
           ),
           const SizedBox(height: 16),
+          if (TelemetryService.instance.isEnabledForBuild &&
+              !TelemetryService.instance.isConsented) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.analytics_outlined,
+                  size: 16,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '新建工单需要先开启「匿名使用数据」，用于关联客服回复与诊断信息。',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
           SizedBox(
             width: double.infinity,
             child: M3EFilledButton.icon(
@@ -291,7 +375,22 @@ class _SupportScreenState extends State<SupportScreen> {
               ),
             ),
           ),
-          if (_tickets.isNotEmpty)
+          if (_unreadCount > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: scheme.primary,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$_unreadCount 条未读',
+                style: textTheme.labelSmall?.copyWith(
+                  color: scheme.onPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else if (_tickets.isNotEmpty)
             Text(
               '${_tickets.length} 个',
               style: textTheme.labelMedium?.copyWith(
@@ -300,7 +399,7 @@ class _SupportScreenState extends State<SupportScreen> {
             ),
           const SizedBox(width: 4),
           IconButton(
-            onPressed: _loading ? null : _load,
+            onPressed: _loading ? null : () => _load(),
             icon: const Icon(Icons.refresh, size: 20),
             tooltip: '刷新',
             visualDensity: VisualDensity.compact,
@@ -350,12 +449,36 @@ class _SupportScreenState extends State<SupportScreen> {
         ),
         if (_error != null)
           Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              _error!.message,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: scheme.error),
+            padding: const EdgeInsets.only(top: 10),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 6, 6),
+              decoration: BoxDecoration(
+                color: scheme.errorContainer,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.sync_problem,
+                    size: 18,
+                    color: scheme.onErrorContainer,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '刷新失败：${_error!.message}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onErrorContainer,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _loading ? null : () => _load(),
+                    child: const Text('重试'),
+                  ),
+                ],
+              ),
             ),
           ),
       ],
@@ -368,9 +491,11 @@ class _SupportScreenState extends State<SupportScreen> {
     SupportTicket ticket,
   ) {
     final textTheme = Theme.of(context).textTheme;
-    final preview = ticket.lastMessage.trim().isEmpty
+    // 历史工单可能把诊断信息拼在正文里，列表只展示用户原文。
+    final body = splitSupportMessage(ticket.lastMessage).body.trim();
+    final preview = body.isEmpty
         ? '（暂无消息）'
-        : ticket.lastMessage.trim();
+        : body.replaceAll(RegExp(r'\s+'), ' ');
     final unread = ticket.hasUnread;
     return M3EListItem(
       leading: Container(
@@ -394,8 +519,18 @@ class _SupportScreenState extends State<SupportScreen> {
         overflow: TextOverflow.ellipsis,
         style: unread ? const TextStyle(fontWeight: FontWeight.w600) : null,
       ),
-      supportingText: Text(
-        '${ticket.statusLabel} · ${_formatTime(ticket.lastMessageAt ?? ticket.createdAt)}',
+      supportingText: Row(
+        children: [
+          SupportStatusChip(status: ticket.status, dense: true),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              _formatTime(ticket.lastMessageAt ?? ticket.createdAt),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
       trailing: unread
           ? Container(
@@ -489,7 +624,7 @@ class _SupportScreenState extends State<SupportScreen> {
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerRight,
-            child: TextButton(onPressed: _load, child: const Text('重试')),
+            child: TextButton(onPressed: () => _load(), child: const Text('重试')),
           ),
         ],
       ),

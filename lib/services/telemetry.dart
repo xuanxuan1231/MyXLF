@@ -224,16 +224,17 @@ class TelemetryService {
         ..serviceVersion =
             '${_packageInfo?.version}+${_packageInfo?.buildNumber}'
         ..environment = envName
-        ..resourceAttributes = {
-          'app_env': envName,
-          'platform': platformName,
-        }
+        ..resourceAttributes = {'app_env': envName, 'platform': platformName}
         ..flushInterval = const Duration(seconds: 10)
         ..flushAt = 10
         ..maxBufferSize = 500
         ..rateCapMaxLogs = 400
         ..rateCapWindow = const Duration(seconds: 10);
       logs.beforeSend = [_sanitizeLogRecord];
+
+      // 所有事件（含 `$exception`）发送前的最后一道脱敏：异常消息只保留
+      // 第一行、属性值去掉凭据 / 查询参数，高风险属性名直接丢弃。
+      config.beforeSend = [_sanitizeEvent];
 
       await Posthog().setup(config);
       _configured = true;
@@ -260,6 +261,85 @@ class TelemetryService {
       level: record.level,
       attributes: attributes.isEmpty ? null : attributes,
     );
+  }
+
+  /// 事件发送前的最后一道脱敏。
+  ///
+  /// `AppLog` 与工单诊断信息已经处理过一遍，但 `$exception`、`$screen` 与
+  /// 未来新增的埋点都会经过这里。异常消息只保留第一行，避免
+  /// `FormatException` 把解析失败的 HTML / JSON 片段（可能含姓名、成绩）
+  /// 带到 PostHog；所有字符串属性同样按日志规则脱敏。
+  static PostHogEvent? _sanitizeEvent(PostHogEvent event) {
+    return PostHogEvent(
+      event: event.event,
+      properties: _sanitizeEventProperties(event.properties),
+      userProperties: _sanitizeEventProperties(event.userProperties),
+      userPropertiesSetOnce: _sanitizeEventProperties(
+        event.userPropertiesSetOnce,
+      ),
+    );
+  }
+
+  /// 测试专用：直接验证事件脱敏规则。
+  @visibleForTesting
+  static PostHogEvent? sanitizeEventForTest(PostHogEvent event) =>
+      _sanitizeEvent(event);
+
+  static Map<String, Object>? _sanitizeEventProperties(
+    Map<String, Object>? properties,
+  ) {
+    if (properties == null || properties.isEmpty) return properties;
+    final result = <String, Object>{};
+    for (final entry in properties.entries) {
+      if (isSensitiveLogKey(entry.key)) continue;
+      if (entry.key == r'$exception_list') {
+        result[entry.key] = _sanitizeExceptionList(entry.value);
+      } else {
+        result[entry.key] = _sanitizeEventValue(entry.value);
+      }
+    }
+    return result.isEmpty ? null : result;
+  }
+
+  /// `$exception_list` 的 `value` 使用更严格的「只保留第一行」规则。
+  static Object _sanitizeExceptionList(Object value) {
+    if (value is! List) return _sanitizeEventValue(value);
+    return value
+        .map((item) {
+          if (item is Map) {
+            final result = <String, Object>{};
+            for (final entry in item.entries) {
+              final key = '${entry.key}';
+              if (isSensitiveLogKey(key)) continue;
+              final child = entry.value;
+              result[key] = key == 'value' && child is String
+                  ? sanitizeExceptionText(child)
+                  : _sanitizeEventValue(child);
+            }
+            return result;
+          }
+          return _sanitizeEventValue(item);
+        })
+        .toList(growable: false);
+  }
+
+  static Object _sanitizeEventValue(Object? value) {
+    if (value == null) return '';
+    if (value is String) return sanitizeLogText(value);
+    if (value is num || value is bool) return value;
+    if (value is Map) {
+      final result = <String, Object>{};
+      for (final entry in value.entries) {
+        final key = '${entry.key}';
+        if (isSensitiveLogKey(key)) continue;
+        result[key] = _sanitizeEventValue(entry.value);
+      }
+      return result;
+    }
+    if (value is Iterable) {
+      return value.map(_sanitizeEventValue).toList(growable: false);
+    }
+    return sanitizeLogText(value.toString());
   }
 
   /// 读取设备 ID：Android 为 Settings.Secure.ANDROID_ID，iOS 为 IDFV。

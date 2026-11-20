@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_log.dart';
+
 /// 一条离线缓存内容。
 class CachedHtml {
   const CachedHtml({required this.html, required this.savedAt});
@@ -62,17 +64,30 @@ class OfflineCache {
     try {
       final prefs = await _prefs();
       final raw = prefs.getString(_storageKey(key));
-      if (raw == null) return null;
+      if (raw == null) {
+        AppLog.instance.debug('离线缓存未命中');
+        return null;
+      }
       final decoded = jsonDecode(raw);
-      if (decoded is! Map) return null;
+      if (decoded is! Map) {
+        AppLog.instance.warn('离线缓存格式异常，已忽略');
+        return null;
+      }
       final html = decoded['html'];
       final savedAt = decoded['savedAt'];
-      if (html is! String || html.isEmpty || savedAt is! num) return null;
+      if (html is! String || html.isEmpty || savedAt is! num) {
+        AppLog.instance.warn('离线缓存字段缺失，已忽略');
+        return null;
+      }
       return CachedHtml(
         html: html,
         savedAt: DateTime.fromMillisecondsSinceEpoch(savedAt.toInt()),
       );
-    } catch (_) {
+    } catch (e) {
+      AppLog.instance.warn(
+        '读取离线缓存失败',
+        attributes: {'type': e.runtimeType.toString()},
+      );
       return null;
     }
   }
@@ -90,7 +105,11 @@ class OfflineCache {
         }),
       );
       await _trim(prefs);
-    } catch (_) {
+    } catch (e) {
+      AppLog.instance.warn(
+        '写入离线缓存失败',
+        attributes: {'type': e.runtimeType.toString()},
+      );
       // 本地存储不可用时仍然可以正常在线浏览。
     }
   }

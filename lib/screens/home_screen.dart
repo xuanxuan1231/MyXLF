@@ -2,9 +2,11 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/app_log.dart';
 import '../services/exam_search.dart';
 import '../services/offline_cache.dart';
 import '../services/parsers.dart';
+import '../services/raw_capture.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_pull_to_refresh.dart';
@@ -149,6 +151,22 @@ class _HomeScreenState extends State<HomeScreen> {
       if (exams.isNotEmpty) {
         await OfflineCache.instance.write(cacheKey, html);
       }
+      RawCaptureStore.instance.add(
+        kind: RawCaptureKind.examList,
+        title: _hasServerFilters ? '考试列表（已筛选）' : '考试列表',
+        body: html,
+        meta: {
+          if ((_schoolYearId ?? '').isNotEmpty) 'school_year_id': _schoolYearId!,
+          if ((_testSemester ?? '').isNotEmpty) 'semester': _testSemester!,
+        },
+      );
+      AppLog.instance.info(
+        '已加载考试列表',
+        attributes: {
+          'exams': exams.length,
+          'server_filters': _hasServerFilters,
+        },
+      );
       if (!mounted) return;
       setState(() {
         _applyLoaded(exams, filters);
@@ -163,6 +181,10 @@ class _HomeScreenState extends State<HomeScreen> {
         try {
           final exams = Parsers.parseExamList(cached.html);
           final filters = Parsers.parseFilters(cached.html);
+          AppLog.instance.warn(
+            '考试列表加载失败，已使用离线缓存',
+            attributes: {'error': '$e'},
+          );
           if (!mounted) return;
           setState(() {
             _applyLoaded(exams, filters);
@@ -176,6 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // 缓存内容损坏时按真实网络错误处理。
         }
       }
+      AppLog.instance.error('考试列表加载失败', attributes: {'error': '$e'});
       if (!mounted) return;
       setState(() {
         _error = e.toString();

@@ -132,6 +132,7 @@ class XlfClient {
     _credentialsRejected = false;
     _typicalSheetCache.clear();
     _typicalImageCache.clear();
+    AppLog.instance.info('已清除登录会话');
   }
 
   /// 清除 Cookie，但保留当前账号身份，供 [login] 重新认证使用。
@@ -224,6 +225,7 @@ class XlfClient {
     if (username == null || storedPassword == null) {
       return const XlfSessionExpiredException();
     }
+    AppLog.instance.info('会话已过期，开始自动恢复');
     // 记录恢复开始时的会话代数：期间一旦登出，本次恢复必须整体作废，
     // 不能再用残留的账号信息（包括弹对话框）把会话登回来。
     final generation = _sessionGeneration;
@@ -255,6 +257,7 @@ class XlfClient {
     if (!_credentialsRejected) {
       try {
         await login(username, storedPassword);
+        AppLog.instance.info('会话已自动恢复');
         return null;
       } on XlfAccountLockedException catch (e) {
         _lockedUsername = username;
@@ -266,8 +269,13 @@ class XlfClient {
         return const XlfSessionExpiredException();
       } on XlfAuthException {
         _credentialsRejected = true;
+        AppLog.instance.warn('保存的密码已失效，需要重新输入');
       } on XlfException catch (e) {
         // 网络 / 平台格式异常：不要误报成密码错误，交给页面重试。
+        AppLog.instance.warn(
+          '会话自动恢复失败',
+          attributes: {'type': e.runtimeType.toString()},
+        );
         return e;
       }
     }
@@ -322,6 +330,7 @@ class XlfClient {
       _credentialsRejected = false;
       _lockedUsername = null;
       _lockedMessage = null;
+      AppLog.instance.info('会话已通过重新登录恢复');
       return null;
     }
     if (terminalFailure != null) {
@@ -396,6 +405,8 @@ class XlfClient {
     if (generation != _sessionGeneration) {
       throw const XlfSessionExpiredException();
     }
+    final startedAt = DateTime.now();
+    AppLog.instance.debug('开始登录');
 
     // 备份当前会话 Cookie；登录失败时回滚，避免把当前账号的会话一起毁掉。
     final previousCookies = await _snapshotCookies();
@@ -497,6 +508,15 @@ class XlfClient {
       _credentialsRejected = false;
       _loginEpoch++;
 
+      AppLog.instance.info(
+        '登录成功',
+        attributes: {
+          'duration_ms': DateTime.now().difference(startedAt).inMilliseconds,
+          'has_school': schoolName.isNotEmpty,
+          'has_class': className.isNotEmpty,
+        },
+      );
+
       return LoginResult(
         schoolName: schoolName,
         className: className,
@@ -507,6 +527,16 @@ class XlfClient {
     } catch (e) {
       // 登录失败：回滚会话 Cookie，当前账号不受影响。
       // 若期间已登出，则不能回滚（那会把刚清掉的会话又恢复出来）。
+      AppLog.instance.log(
+        e is XlfAuthException || e is XlfAccountLockedException
+            ? AppLogLevel.warn
+            : AppLogLevel.error,
+        '登录失败',
+        attributes: {
+          'type': e.runtimeType.toString(),
+          'duration_ms': DateTime.now().difference(startedAt).inMilliseconds,
+        },
+      );
       if (generation == _sessionGeneration) {
         await _restoreCookies(previousCookies);
       }
@@ -612,6 +642,7 @@ class XlfClient {
       final text = resp.data.toString();
       final m = RegExp(r'handleCallback\("0","0","([^"]+)"\)').firstMatch(text);
       if (m == null) {
+        AppLog.instance.warn('DWR 握手响应格式异常');
         throw const XlfException('平台返回格式异常，请稍后重试');
       }
       return m.group(1)!;
@@ -641,12 +672,14 @@ class XlfClient {
       start = text.indexOf(marker2);
       markerLen = marker2.length;
       if (start == -1) {
+        AppLog.instance.warn('DWR 响应缺少 handleCallback');
         throw const XlfException('平台返回格式异常，请稍后重试');
       }
     }
     final jsonStart = start + markerLen;
     final jsonEnd = text.lastIndexOf(']);');
     if (jsonEnd <= jsonStart) {
+      AppLog.instance.warn('DWR 响应缺少 JSON 结束标记');
       throw const XlfException('平台返回格式异常，请稍后重试');
     }
     final jsonStr = _jsToJson(text.substring(jsonStart, jsonEnd + 1));
@@ -656,6 +689,7 @@ class XlfClient {
     } catch (_) {
       // DWR 的 JS 字面量可能包含尚未支持的写法（如 other 形式的 new Date），
       // 统一转换为友好提示，避免把 FormatException 原文抛到界面上。
+      AppLog.instance.warn('DWR 响应无法解析为 JSON');
       throw const XlfException('平台返回格式异常，请稍后重试');
     }
   }
@@ -682,47 +716,91 @@ class XlfClient {
     String? schoolYearId,
     String? testSemester,
   }) async {
-    if (schoolYearId != null || testSemester != null) {
+    final filtered = schoolYearId != null || testSemester != null;
+    final startedAt = DateTime.now();
+    AppLog.instance.debug('请求考试列表', attributes: {'filtered': filtered});
+    if (filtered) {
       final resp = await _postForm('$kBaseUrl/demo/MainAction.a', {
         if (schoolYearId != null) 'schoolYearId': schoolYearId,
         if (testSemester != null) 'testSemester': testSemester,
       });
-      return resp.data.toString();
+      final html = resp.data.toString();
+      _logPageResponse('考试列表', html, startedAt);
+      return html;
     }
-    return _get(kHomeUrl);
+    final html = await _get(kHomeUrl);
+    _logPageResponse('考试列表', html, startedAt);
+    return html;
   }
 
   /// 总分分析报告（含成绩单、综述、优势弱势科目）。
   Future<String> fetchTotalReportHtml(String testId) async {
+    final startedAt = DateTime.now();
     // 需先设置「当前考试」，服务器才会返回报告。
     final ok = await _dwrDoModifyCurrentTest(testId);
     if (!ok) {
+      AppLog.instance.warn('当前考试不可查看', attributes: {'test_id': testId});
       throw const XlfException('您不能浏览这次考试的报表');
     }
     final resp = await _postForm(
       '$kStudentReportUrl?doShowStudentReport&test_id=$testId',
       {},
     );
-    return resp.data.toString();
+    final html = resp.data.toString();
+    _logPageResponse('总分报告', html, startedAt, testId: testId);
+    return html;
   }
 
   /// 学科分析报告。
   Future<String> fetchSubjectReportHtml(SubjectLink link) async {
+    final startedAt = DateTime.now();
     final resp = await _postForm(
       '$kSubjectReportUrl?showSubjectStudentReport',
       link.toForm(),
     );
-    return resp.data.toString();
+    final html = resp.data.toString();
+    _logPageResponse(
+      '学科报告',
+      html,
+      startedAt,
+      testId: link.testId,
+      paperId: link.paperId,
+    );
+    return html;
+  }
+
+  void _logPageResponse(
+    String label,
+    String html,
+    DateTime startedAt, {
+    String? testId,
+    String? paperId,
+  }) {
+    AppLog.instance.debug(
+      '$label响应',
+      attributes: {
+        'bytes': html.length,
+        'duration_ms': DateTime.now().difference(startedAt).inMilliseconds,
+        if (testId != null) 'test_id': testId,
+        if (paperId != null) 'paper_id': paperId,
+      },
+    );
   }
 
   /// 账户信息页（读取用户名等基本信息）。
   Future<String> fetchAccountInfoHtml() async {
-    return _get(kAccountInfoUrl);
+    final startedAt = DateTime.now();
+    final html = await _get(kAccountInfoUrl);
+    _logPageResponse('账户信息', html, startedAt);
+    return html;
   }
 
   /// 网页版登录历史页（最近 30 天登录日志）。
   Future<String> fetchLoginHistoryHtml() async {
-    return _get('$kBaseUrl/demo/DemoAction.a?doShowLoginList');
+    final startedAt = DateTime.now();
+    final html = await _get('$kBaseUrl/demo/DemoAction.a?doShowLoginList');
+    _logPageResponse('登录历史', html, startedAt);
+    return html;
   }
 
   /// 获取答卷（答题卡原图）图片地址。
@@ -734,7 +812,12 @@ class XlfClient {
       '$kBaseUrl/report/ShowStudentImgsAction.a?findStudentImgs',
       form.toForm(),
     );
-    return Parsers.parseImageUrls(resp.data.toString());
+    final urls = Parsers.parseImageUrls(resp.data.toString());
+    AppLog.instance.debug(
+      '已解析答卷图片',
+      attributes: {'images': urls.length},
+    );
+    return urls;
   }
 
   /// 获取典型答卷的题号导航与默认小题的图片。
@@ -750,6 +833,10 @@ class XlfClient {
       form.toForm(),
     );
     final sheet = Parsers.parseTypicalAnswerSheet(resp.data.toString());
+    AppLog.instance.debug(
+      '已解析典型答卷导航',
+      attributes: {'items': sheet.items.length},
+    );
     _typicalSheetCache[baseKey] = sheet;
     for (final item in sheet.items) {
       if (item.hasImages) {
@@ -807,7 +894,9 @@ class XlfClient {
         url,
         options: Options(responseType: ResponseType.bytes),
       );
-      return resp.data as Uint8List;
+      final bytes = resp.data as Uint8List;
+      AppLog.instance.debug('已下载图片', attributes: {'bytes': bytes.length});
+      return bytes;
     });
   }
 
@@ -1053,12 +1142,17 @@ class _NetworkLogInterceptor extends Interceptor {
       return;
     }
     final options = err.requestOptions;
-    AppLog.instance.warn(
-      '网络请求失败 ${options.method} ${options.uri.path}',
+    final status = err.response?.statusCode;
+    // 5xx 视为服务端故障（error）；超时、连接失败与 4xx 属于可重试 / 可恢复
+    // 的问题（warn），避免把用户网络问题误报成应用错误。
+    final serverError = status != null && status >= 500;
+    AppLog.instance.log(
+      serverError ? AppLogLevel.error : AppLogLevel.warn,
+      '${serverError ? '服务器错误' : '网络请求失败'} '
+      '${options.method} ${options.uri.path}',
       attributes: {
         'type': err.type.name,
-        if (err.response?.statusCode != null)
-          'status': err.response!.statusCode!,
+        if (status != null) 'status': status,
       },
     );
     handler.next(err);
@@ -1084,6 +1178,10 @@ class _SessionGuardInterceptor extends Interceptor {
       handler.next(response);
       return;
     }
+    AppLog.instance.warn(
+      '会话已过期，尝试恢复后重试',
+      attributes: {'path': options.uri.path},
+    );
     _retry(response, handler);
   }
 

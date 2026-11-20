@@ -32,14 +32,59 @@ Content-Type: application/json
 
 ```json
 {
-  "message": "问题描述 + 可选诊断信息",
-  "traits": { "name": null, "email": null },
+  "message": "用户填写的问题描述（不含诊断信息）",
+  "traits": {
+    "name": "可选，用户主动填写",
+    "email": "可选，用户主动填写",
+    "app_version": "1.0.0",
+    "app_build": "42",
+    "app_env": "release",
+    "platform": "android",
+    "os_version": "14",
+    "locale": "zh_CN",
+    "logs_supported": true
+  },
+  "session_context": {
+    "diagnostics": "版本 / 平台 / 语言 / 设备 ID / 上报状态 / 时间",
+    "recent_logs": "最近 40 条日志（最多 2000 字符）"
+  },
   "ticket_id": null,
   "widget_session_id": "<本机持久化 UUID>",
   "distinct_id": "<当前 PostHog distinct_id>",
   "session_id": "<可选，当前 PostHog 会话 ID>"
 }
 ```
+
+诊断信息只放在 `traits` / `session_context` 里，**不会拼进对话正文**：
+客服后台看到的 `message` 始终是用户原文，诊断数据可以在 person 属性中查看。
+关闭「附带诊断信息」时，这两个字段都不发送。
+
+## 提交前置条件：开启匿名使用数据
+
+新建工单必须已开启「账户 → 隐私与遥测 → 收集匿名使用数据」：
+
+- 工单依靠匿名设备 ID（`distinct_id`）关联客服回复与诊断信息，遥测关闭时
+  拿不到稳定的设备身份；
+- 新建页会显示说明卡片，提供「开启并继续」与「隐私设置」入口；未开启时
+  提交按钮禁用，服务层也会再次拦截；
+- debug 构建的遥测被强制关闭，因此不能新建工单，界面会提示改用正式版本；
+- **已有工单的回复不强制**：用户关闭遥测后仍可继续沟通，避免历史工单失联。
+
+## 附件与截图
+
+目前**不支持**在工单里直接上传图片或文件。这是 PostHog Support 的限制，
+不是本项目的取舍：
+
+- Widget 的 `sendMessage` 只接受纯文本，没有附件参数；
+- `POST /api/projects/:project_id/conversations/tickets/:id/attachments/`
+  虽然存在，但需要 Personal API Key（不能放客户端），且官方文档明确写着
+  “Widget tickets do not accept file attachments yet”；
+- 客服 → 用户的图片可以出现在 `rich_content` 中，但用户 → 客服的上传方向
+  尚未开放（见 PostHog/posthog#64659）。
+
+因此新建工单页会提示「工单暂不支持上传图片」，建议用户把截图中的关键信息
+写进正文。需要原始 HTML 时，可使用报告页或「诊断日志 → 原始数据」的导出
+功能，再通过其他渠道发送给客服。
 
 > 这是 Widget 的接口契约，不是 PostHog 公开承诺稳定的 API。升级 PostHog
 > 后需要回归「列表 / 新建 / 回复 / 已读」四条路径。
@@ -106,12 +151,21 @@ PostHog 官方说明自建版通常只包含免费计划功能，Support / Logs 
 
 - `distinct_id` 沿用当前的匿名设备 ID（Android ANDROID_ID / iOS IDFV /
   其他平台随机 UUID），**不关联账号**；
+- 遥测与工单都以**设备**为单位：同一设备切换账号时，同意状态、匿名设备 ID
+  与历史工单都不变；账号本身不会成为工单身份，也不会出现在自动采集的数据里；
 - `widget_session_id` 首次生成后保存在 SharedPreferences
   （`support_widget_session_id`），用于列出本设备的工单；
 - 同一设备切换账号时，工单仍属于同一个设备 person；换设备或重装后，旧工单
   不会自动出现在新设备上（客服后台仍可看到）；
-- 工单内容由用户主动填写；诊断信息默认附带，可在提交前关闭，内容只包含
-  版本、平台、匿名设备 ID 与最近日志，不包含账号、成绩或答卷；
+- 工单内容由用户主动填写；诊断信息默认附带、可在提交前关闭，只包含
+  版本、平台、匿名设备 ID 与最近日志，不包含账号、姓名、学校 / 班级、成绩
+  或答卷内容；诊断信息作为 `traits` / `session_context` 元数据发送，不进入
+  对话正文。日志在写入时已经过脱敏：密码 / 令牌 / Cookie、邮箱、手机号、
+  身份证号与 URL 查询参数会被替换，异常消息只保留第一行；考试 / 试卷的
+  匿名编号、题数与响应大小可能出现在日志中，用于定位解析问题；
+- 用户可主动导出考试列表 / 总分报告 / 学科报告的原始 HTML（报告页顶栏或
+  「诊断日志 → 原始数据」），原始内容只在内存中保留，是否分享由用户决定；
+  这部分内容**不会**自动进入工单，需要用户自行附上；
 - 若未来要按账号鉴别或支持跨设备找回，需要服务端 HMAC 签名
   （Support Identity Verification）并修改隐私说明，不能把 secret 放进客户端。
 
@@ -124,7 +178,8 @@ PostHog 官方说明自建版通常只包含免费计划功能，Support / Logs 
 | `lib/screens/support_screen.dart` | 工单列表、空状态、未配置引导 |
 | `lib/screens/new_support_ticket_screen.dart` | 新建工单、联系方式、诊断信息预览 |
 | `lib/screens/support_ticket_screen.dart` | 消息气泡、回复、15 秒轮询、已读 |
-| `lib/screens/log_viewer_screen.dart` | 本机日志查看 / 复制 / 清空 |
+| `lib/screens/log_viewer_screen.dart` | 本机日志查看 / 级别筛选 / 复制 / 清空 |
+| `lib/screens/raw_data_screen.dart` | 原始响应查看 / 复制 / 保存 / 分享 |
 
 UI 与服务层完全分离：`SupportService` 不依赖任何页面，页面只消费模型与
 `SupportException`。若要替换成自建客服后端，只需替换服务层实现。
@@ -138,6 +193,7 @@ UI 与服务层完全分离：`SupportService` 不依赖任何页面，页面只
 | 400 `invalid request data` | `widget_session_id` 不是合法 UUID，或 `distinct_id` 为空 | 应用会自动迁移旧 ID / 生成兜底 ID；仍失败时在诊断日志里查看 `detail` |
 | 429 | 触发 Widget 限流（约 30 次/分钟/会话） | 稍后重试，避免频繁刷新 |
 | 列表为空但客服后台有工单 | `widget_session_id` 变化（清数据 / 重装） | 属于设备级身份的预期行为 |
+| 提交按钮不可用 / 提示开启匿名使用数据 | 遥测未开启，或当前为 debug 构建 | 在工单页开启，或改用 profile / release 构建 |
 | 桌面端日志为空 | 日志只在运行时产生 | 正常；桌面端不会实时上报 Logs |
 
 ## 测试建议
@@ -145,5 +201,6 @@ UI 与服务层完全分离：`SupportService` 不依赖任何页面，页面只
 - 用 `--dart-define=POSTHOG_CONVERSATIONS_TOKEN=...` 构建 profile 包；
 - 新建工单后确认 PostHog → Support 中出现对应 ticket，person 为当前设备 ID；
 - 在客服后台回复，应用内 15 秒内应能轮询到；
-- 关闭「附带诊断信息」后提交，确认消息中不含诊断段落；
-- 退出遥测后提交工单：工单仍可发送（用户主动行为），但不会新增 Logs。
+- 关闭「附带诊断信息」后提交，确认消息正文不含诊断段落，person 属性里也没有诊断字段；
+- 提交时确认客服后台的对话正文只有用户原文，诊断信息出现在 person 属性中；
+- 退出遥测后新建工单：应被拦截并提示开启；已有工单仍可回复。

@@ -207,13 +207,19 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                             : '${TelemetryService.envName}（遥测已关闭）',
                       );
                     case 2:
+                      final logsSupported = TelemetryService.logsSupported;
+                      final logsLive = _enabled && logsSupported;
                       return _infoTile(
                         scheme,
                         icon: Icons.notes_outlined,
                         title: '诊断日志',
                         subtitle:
                             '本机保留最近 ${AppLog.instance.length} 条，'
-                            '${TelemetryService.logsSupported ? '已开启实时上报' : '当前平台仅保存在本机'}',
+                            '${logsLive
+                                ? '并实时上报到 PostHog'
+                                : logsSupported
+                                ? '当前仅保存在本机'
+                                : '当前平台仅保存在本机'}',
                         trailing: Icon(
                           Icons.chevron_right,
                           size: 20,
@@ -247,7 +253,8 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      '自动收集的内容不包含账号、成绩与答卷；工单内容由你主动填写',
+                      '自动收集的内容不包含账号、姓名、学校 / 班级、成绩与答卷内容；'
+                      '工单内容由你主动填写',
                       style: textTheme.bodySmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),

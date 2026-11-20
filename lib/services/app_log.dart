@@ -8,6 +8,17 @@ import 'log_sanitizer.dart';
 import 'telemetry.dart';
 
 /// 诊断日志级别（与 PostHog Logs 的 OpenTelemetry 级别一一对应）。
+///
+/// 级别约定（从低到高，写入时按「对排查的价值」选择，不要一律用 info）：
+///
+/// | 级别 | 用途 | 典型场景 |
+/// | --- | --- | --- |
+/// | [trace] | 仅开发期使用的细粒度轨迹 | 单次请求的每个步骤；默认不产生 |
+/// | [debug] | 排查状态细节，量大但可丢弃 | 缓存命中 / 未命中、筛选条件变化、响应大小 |
+/// | [info] | 关键业务事件，客服与运营需要知道 | 登录成功、页面加载完成、导出 / dump、提交工单 |
+/// | [warn] | 可恢复异常，功能仍可用 | 慢请求、4xx、离线缓存回退、缓存损坏 |
+/// | [error] | 功能失败，用户会看到错误 | 5xx、解析失败、发送失败、未捕获异常 |
+/// | [fatal] | 启动失败或不可恢复状态 | 初始化崩溃、关键依赖缺失 |
 enum AppLogLevel { trace, debug, info, warn, error, fatal }
 
 extension AppLogLevelLabel on AppLogLevel {
@@ -142,11 +153,7 @@ class AppLog extends ChangeNotifier {
   /// 记录异常。相同异常 + 相同上下文在 3 秒内只记一次，避免多个全局
   /// 错误钩子（FlutterError / PlatformDispatcher / runZonedGuarded）
   /// 把同一条异常重复写入日志。
-  void exception(
-    Object error,
-    StackTrace stackTrace, {
-    String? context,
-  }) {
+  void exception(Object error, StackTrace stackTrace, {String? context}) {
     final head = stackTrace.toString().split('\n').take(6).join('\n');
     final signature = '${error.runtimeType}:$error|$context';
     final now = DateTime.now();
@@ -160,24 +167,42 @@ class AppLog extends ChangeNotifier {
     _lastExceptionAt = now;
     log(
       AppLogLevel.error,
-      '未捕获异常：${error.runtimeType}: $error',
-      attributes: {
-        if (context != null) 'context': context,
-        'stack': head,
-      },
+      '未捕获异常：${error.runtimeType}: '
+      '${sanitizeExceptionText(error.toString())}',
+      attributes: {if (context != null) 'context': context, 'stack': head},
     );
   }
 
   /// 最近 [limit] 条日志（按时间正序）。
-  List<AppLogEntry> recent({int limit = 120}) {
+  ///
+  /// [levels] 不为空时只返回这些级别的日志，供日志查看器做筛选。
+  List<AppLogEntry> recent({int limit = 120, Set<AppLogLevel>? levels}) {
     if (limit <= 0 || _entries.isEmpty) return const [];
-    final skip = _entries.length > limit ? _entries.length - limit : 0;
-    return _entries.skip(skip).toList(growable: false);
+    final source = levels == null
+        ? _entries
+        : _entries.where((entry) => levels.contains(entry.level));
+    final matches = source.toList(growable: false);
+    if (matches.length <= limit) return matches;
+    return matches.sublist(matches.length - limit);
   }
 
   /// 导出为纯文本，供工单诊断信息与日志查看器使用。
-  String exportText({int limit = 120}) {
-    return recent(limit: limit).map((e) => e.toLine()).join('\n');
+  String exportText({int limit = 120, Set<AppLogLevel>? levels}) {
+    return recent(
+      limit: limit,
+      levels: levels,
+    ).map((e) => e.toLine()).join('\n');
+  }
+
+  /// 各级别当前的条数，日志查看器用于筛选标签。
+  Map<AppLogLevel, int> get levelCounts {
+    final counts = <AppLogLevel, int>{
+      for (final level in AppLogLevel.values) level: 0,
+    };
+    for (final entry in _entries) {
+      counts[entry.level] = counts[entry.level]! + 1;
+    }
+    return counts;
   }
 
   /// 清空本机缓冲。

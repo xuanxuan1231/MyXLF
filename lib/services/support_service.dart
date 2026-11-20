@@ -36,6 +36,42 @@ class SupportException implements Exception {
   String toString() => message;
 }
 
+/// 工单状态的中文标签；未知状态原样展示，便于排查接口变化。
+String supportStatusLabel(String status) => switch (status.toLowerCase()) {
+  'new' => '待处理',
+  'open' => '处理中',
+  'on_hold' => '已挂起',
+  'resolved' => '已解决',
+  'closed' => '已关闭',
+  _ => status.isEmpty ? '未知' : status,
+};
+
+/// 工单是否已经结束（已解决 / 已关闭）。
+bool supportStatusIsResolved(String status) {
+  final value = status.toLowerCase();
+  return value == 'resolved' || value == 'closed';
+}
+
+/// 旧版本把诊断信息直接拼在消息正文里，显示时可以把它们拆出来。
+const String supportDiagnosticsMarker = '—— 诊断信息';
+
+/// 拆分「用户正文 + 旧版附带诊断信息」。
+///
+/// 新版本把诊断信息放在请求元数据里，不再进入消息正文；这里只用于兼容
+/// 已经存在的历史工单，避免列表预览和气泡被大段日志淹没。
+({String body, String? diagnostics}) splitSupportMessage(String content) {
+  final index = content.indexOf(supportDiagnosticsMarker);
+  if (index < 0) {
+    return (body: content.trimRight(), diagnostics: null);
+  }
+  final body = content.substring(0, index).trimRight();
+  final diagnostics = content.substring(index).trim();
+  return (
+    body: body.isEmpty ? content.trimRight() : body,
+    diagnostics: diagnostics.isEmpty ? null : diagnostics,
+  );
+}
+
 /// PostHog Support（Conversations）中的一张工单。
 class SupportTicket {
   const SupportTicket({
@@ -54,19 +90,12 @@ class SupportTicket {
   final DateTime? lastMessageAt;
   final int unreadCount;
 
-  bool get isResolved => status == 'resolved' || status == 'closed';
+  bool get isResolved => supportStatusIsResolved(status);
 
   bool get hasUnread => unreadCount > 0;
 
-  /// 中文状态标签；未知状态原样展示，便于排查接口变化。
-  String get statusLabel => switch (status) {
-    'new' => '待处理',
-    'open' => '处理中',
-    'on_hold' => '已挂起',
-    'resolved' => '已解决',
-    'closed' => '已关闭',
-    _ => status.isEmpty ? '未知' : status,
-  };
+  /// 中文状态标签。
+  String get statusLabel => supportStatusLabel(status);
 
   factory SupportTicket.fromJson(Map<String, dynamic> json) {
     return SupportTicket(
@@ -213,10 +242,12 @@ class SupportService {
     final data = _asMap(response.data);
     final results = data['results'];
     if (results is! List) return const [];
-    return results
+    final tickets = results
         .whereType<Map>()
         .map((e) => SupportTicket.fromJson(Map<String, dynamic>.from(e)))
         .toList(growable: false);
+    AppLog.instance.debug('已加载工单列表', attributes: {'count': tickets.length});
+    return tickets;
   }
 
   /// 拉取一张工单的消息。
@@ -247,12 +278,21 @@ class SupportService {
         messages.add(message);
       }
     }
-    return SupportThread(
+    final thread = SupportThread(
       ticketId: ticketId,
       status: _string(data['ticket_status']).toLowerCase(),
       unreadCount: _int(data['unread_count']),
       messages: messages,
     );
+    AppLog.instance.debug(
+      '已加载工单消息',
+      attributes: {
+        'messages': messages.length,
+        'unread': thread.unreadCount,
+        'incremental': after != null && after.isNotEmpty,
+      },
+    );
+    return thread;
   }
 
   /// 当前工单身份（`distinct_id`）。
@@ -263,11 +303,15 @@ class SupportService {
   Future<String> resolveDistinctId() => TelemetryService.instance.distinctId();
 
   /// 发送消息；[ticketId] 为空时创建新工单。
+  ///
+  /// [diagnostics] 作为工单元数据发送（`traits` / `session_context`），
+  /// 不会拼进对话正文，客服后台看到的仍是用户原文。
   Future<SupportSendResult> sendMessage({
     required String message,
     String? ticketId,
     String? name,
     String? email,
+    SupportDiagnostics? diagnostics,
   }) async {
     final text = message.trim();
     if (text.isEmpty) {
@@ -282,15 +326,33 @@ class SupportService {
         kind: SupportErrorKind.invalidInput,
       );
     }
+    final creatingTicket = _nullIfBlank(ticketId) == null;
+    // 新工单依赖匿名设备 ID 关联回复与诊断信息；未开启遥测时无法提交。
+    // 已有工单的回复不强制，避免用户关闭遥测后无法继续沟通。
+    if (creatingTicket && !TelemetryService.instance.isConsented) {
+      throw const SupportException(
+        '提交工单前请先开启匿名使用数据',
+        kind: SupportErrorKind.invalidInput,
+      );
+    }
 
     final sessionId = await _widgetSessionId();
     final distinctId = await resolveDistinctId();
+    final safeName = _nullIfBlank(name);
+    final safeEmail = _nullIfBlank(email);
+    final traits = <String, dynamic>{
+      if (safeName != null) 'name': safeName,
+      if (safeEmail != null) 'email': safeEmail,
+      if (diagnostics != null) ...diagnostics.traits,
+    };
     final payload = <String, dynamic>{
       'message': text,
-      'traits': {'name': _nullIfBlank(name), 'email': _nullIfBlank(email)},
       'ticket_id': _nullIfBlank(ticketId),
       'widget_session_id': sessionId,
       'distinct_id': distinctId,
+      if (traits.isNotEmpty) 'traits': traits,
+      if (diagnostics != null && !diagnostics.isEmpty)
+        'session_context': diagnostics.sessionContext,
     };
     // 会话 ID 仅用于让客服在 PostHog 中对照排查；取不到就不带。
     try {
@@ -306,7 +368,7 @@ class SupportService {
         data: payload,
         options: Options(headers: _authHeaders),
       ),
-      operation: ticketId == null ? '创建工单' : '发送消息',
+      operation: creatingTicket ? '创建工单' : '发送消息',
     );
     final data = _asMap(response.data);
     final returnedId = _string(data['ticket_id'] ?? data['id']);
@@ -317,6 +379,14 @@ class SupportService {
         kind: SupportErrorKind.invalidResponse,
       );
     }
+    AppLog.instance.info(
+      creatingTicket ? '已创建工单' : '已发送工单消息',
+      attributes: {
+        'ticket_id': newTicketId,
+        'chars': text.length,
+        'diagnostics': diagnostics != null && !diagnostics.isEmpty,
+      },
+    );
     return SupportSendResult(
       ticketId: newTicketId,
       messageId: _nullIfBlank(_string(data['message_id'])),
@@ -337,6 +407,7 @@ class SupportService {
       ),
       operation: '标记工单已读',
     );
+    AppLog.instance.debug('已标记工单为已读', attributes: {'ticket_id': ticketId});
   }
 
   Future<Response<dynamic>> _send(
@@ -356,7 +427,8 @@ class SupportService {
       // 4xx / 5xx 也要写入诊断日志，否则用户只看到界面上的错误提示，
       // 提交工单时无法把服务端返回的具体原因一起带过去。
       final detail = _errorDetail(response.data);
-      AppLog.instance.warn(
+      AppLog.instance.log(
+        status >= 500 ? AppLogLevel.error : AppLogLevel.warn,
         '工单请求失败：$operation（HTTP $status）',
         attributes: {'status': status, if (detail != null) 'detail': detail},
       );
@@ -517,30 +589,78 @@ class SupportService {
   Future<String> debugWidgetSessionId() => _widgetSessionId();
 }
 
-/// 组装工单附带的诊断信息。
+/// 工单附带的诊断信息。
 ///
 /// 只包含版本、平台、设备 ID 与最近日志，不含账号、姓名、学校 / 班级、
-/// 成绩或答卷。用户可在提交前关闭附带。
-Future<String> buildSupportDiagnostics({int logLimit = 80}) async {
+/// 成绩或答卷。发送时放进 `traits` / `session_context`，不会进入对话正文。
+class SupportDiagnostics {
+  const SupportDiagnostics({
+    required this.summary,
+    required this.logs,
+    required this.traits,
+  });
+
+  /// 人类可读的摘要（版本、平台、语言、设备 ID、上报状态、时间）。
+  final String summary;
+
+  /// 最近日志；为空表示当前没有日志。
+  final String logs;
+
+  /// 随工单发送的结构化字段，便于在 PostHog 中筛选。
+  final Map<String, String> traits;
+
+  bool get isEmpty => summary.isEmpty && logs.isEmpty;
+
+  /// 提交前预览用；与实际发送的元数据保持一致。
+  String get previewText {
+    if (logs.isEmpty) return summary;
+    return '$summary\n\n最近日志：\n$logs';
+  }
+
+  /// Widget API 的 `session_context` 字段。
+  Map<String, dynamic> get sessionContext => {
+    'diagnostics': summary,
+    if (logs.isNotEmpty) 'recent_logs': logs,
+  };
+}
+
+/// 组装工单附带的诊断信息。
+///
+/// 日志默认最多 40 条并截断到 2000 字符，避免超出 Widget API 对
+/// `session_context` 单字段长度的限制。
+Future<SupportDiagnostics> buildSupportDiagnostics({
+  int logLimit = 40,
+  int maxLogChars = 2000,
+}) async {
   final info = await TelemetryService.instance.diagnostics();
   final version = '${info['app_version']}+${info['app_build']}';
-  final lines = <String>[
-    '—— 诊断信息（自动附带，可在提交前关闭）——',
+  final summary = [
     '版本：$version（${info['app_env']}）',
     '平台：${info['platform']} · ${info['os_version']}',
     '语言：${info['locale']}',
     '设备 ID：${info['distinct_id']}',
     '日志上报：${info['logs_supported'] == true ? '已启用' : '仅保存在本机'}',
     '时间：${DateTime.now().toIso8601String()}',
-  ];
-  final logs = AppLog.instance.exportText(limit: logLimit);
-  lines
-    ..add('')
-    ..add('最近日志：');
-  lines.add(logs.isEmpty ? '（无）' : logs);
-  final text = lines.join('\n');
-  if (text.length <= 6000) return text;
-  return '${text.substring(0, 6000)}\n…（诊断信息已截断）';
+  ].join('\n');
+
+  var logs = AppLog.instance.exportText(limit: logLimit);
+  if (logs.length > maxLogChars) {
+    logs = '${logs.substring(0, maxLogChars)}\n…（日志已截断）';
+  }
+
+  return SupportDiagnostics(
+    summary: summary,
+    logs: logs,
+    traits: {
+      'app_version': '${info['app_version']}',
+      'app_build': '${info['app_build']}',
+      'app_env': '${info['app_env']}',
+      'platform': '${info['platform']}',
+      'os_version': '${info['os_version']}',
+      'locale': '${info['locale']}',
+      'logs_supported': '${info['logs_supported'] == true}',
+    },
+  );
 }
 
 Map<String, dynamic> _asMap(dynamic data) {

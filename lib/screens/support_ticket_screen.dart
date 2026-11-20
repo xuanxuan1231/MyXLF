@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../services/support_service.dart';
+import '../widgets/support_status_chip.dart';
 
 /// 工单会话：消息列表 + 回复输入框。
 class SupportTicketScreen extends StatefulWidget {
@@ -35,11 +36,13 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
   bool _sending = false;
   SupportException? _error;
   Timer? _pollTimer;
+  DateTime? _lastSyncedAt;
 
   @override
   void initState() {
     super.initState();
     _status = widget.initialStatus;
+    _controller.addListener(_onDraftChanged);
     WidgetsBinding.instance.addObserver(this);
     _load(scrollToBottom: true);
     _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
@@ -62,6 +65,12 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
     super.dispose();
   }
 
+  void _onDraftChanged() {
+    if (!mounted) return;
+    // 只影响发送按钮的可用状态。
+    setState(() {});
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // 回到前台时立即补一次，避免等待下一个轮询周期。
@@ -81,10 +90,19 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
       });
     }
     final wasNearBottom = _isNearBottom;
+    // 轮询时只拉取上次同步之后的消息，减少传输并降低限流风险。
+    final after = silent ? _lastServerMessageAt : null;
     try {
-      final thread = await SupportService.instance.fetchThread(widget.ticketId);
+      final thread = await SupportService.instance.fetchThread(
+        widget.ticketId,
+        after: after
+            ?.subtract(const Duration(seconds: 1))
+            .toUtc()
+            .toIso8601String(),
+      );
       if (!mounted) return;
-      _applyThread(thread);
+      _applyThread(thread, merge: after != null);
+      _lastSyncedAt = DateTime.now();
       if (thread.unreadCount > 0) {
         unawaited(_markRead());
       }
@@ -95,19 +113,36 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e;
+        if (!silent || _messages.isEmpty) _error = e;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = SupportException('加载工单失败：$e');
+        if (!silent || _messages.isEmpty) {
+          _error = SupportException('加载工单失败：$e');
+        }
       });
     }
   }
 
-  void _applyThread(SupportThread thread) {
-    final serverContents = thread.messages
+  /// 最近一条来自服务端的消息时间，用于增量同步。
+  DateTime? get _lastServerMessageAt {
+    DateTime? latest;
+    for (final message in _messages) {
+      if (message.id.startsWith('local-')) continue;
+      final createdAt = message.createdAt;
+      if (createdAt != null &&
+          (latest == null || createdAt.isAfter(latest))) {
+        latest = createdAt;
+      }
+    }
+    return latest;
+  }
+
+  void _applyThread(SupportThread thread, {bool merge = false}) {
+    final serverMessages = thread.messages;
+    final serverContents = serverMessages
         .map((m) => m.content.trim())
         .where((c) => c.isNotEmpty)
         .toSet();
@@ -119,8 +154,36 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
               !serverContents.contains(m.content.trim()),
         )
         .toList(growable: false);
+
+    final List<SupportMessage> combined;
+    if (merge) {
+      // 增量结果只包含新消息，和已有消息按 id 合并。
+      final byId = <String, SupportMessage>{};
+      for (final message in [
+        ..._messages.where((m) => !m.id.startsWith('local-')),
+        ...serverMessages,
+      ]) {
+        final key = message.id.isNotEmpty
+            ? message.id
+            : '${message.authorType}|${message.createdAt}|${message.content}';
+        byId[key] = message;
+      }
+      combined = byId.values.toList();
+    } else {
+      combined = [...serverMessages];
+    }
+    combined.addAll(pending);
+    combined.sort((a, b) {
+      final at = a.createdAt;
+      final bt = b.createdAt;
+      if (at == null && bt == null) return 0;
+      if (at == null) return 1;
+      if (bt == null) return -1;
+      return at.compareTo(bt);
+    });
+
     setState(() {
-      _messages = [...thread.messages, ...pending];
+      _messages = combined;
       if (thread.status.isNotEmpty) _status = thread.status;
       _loading = false;
       _error = null;
@@ -163,8 +226,10 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
       setState(() {
         _sending = false;
         // 已解决 / 已关闭的工单发送新消息后通常会重新打开。
-        if (_status == 'resolved' || _status == 'closed') _status = 'open';
+        if (_isResolved) _status = 'open';
       });
+      // 立即拉取服务端回显，确认消息已送达并同步最新状态。
+      unawaited(_load(silent: true, scrollToBottom: true));
     } on SupportException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -216,16 +281,7 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
     });
   }
 
-  String get _statusLabel => switch (_status) {
-    'new' => '待处理',
-    'open' => '处理中',
-    'on_hold' => '已挂起',
-    'resolved' => '已解决',
-    'closed' => '已关闭',
-    _ => '工单',
-  };
-
-  bool get _isResolved => _status == 'resolved' || _status == 'closed';
+  bool get _isResolved => supportStatusIsResolved(_status);
 
   @override
   Widget build(BuildContext context) {
@@ -249,7 +305,9 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
               style: textTheme.titleMedium,
             ),
             Text(
-              _statusLabel,
+              _lastSyncedAt == null
+                  ? '正在同步…'
+                  : '已同步 ${DateFormat('HH:mm').format(_lastSyncedAt!)}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: textTheme.labelSmall?.copyWith(
@@ -259,6 +317,13 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
             ),
           ],
         ),
+        actions: [
+          if (_status.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Center(child: SupportStatusChip(status: _status)),
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -383,6 +448,8 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
   ) {
     final mine = message.isFromCustomer;
     final textTheme = Theme.of(context).textTheme;
+    // 历史工单可能把诊断信息拼在正文里，气泡只展示用户原文。
+    final split = splitSupportMessage(message.content);
     final background = mine
         ? scheme.primaryContainer
         : scheme.surfaceContainerHigh;
@@ -428,13 +495,34 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
                   ),
                 ),
                 child: SelectableText(
-                  message.content,
+                  split.body,
                   style: textTheme.bodyMedium?.copyWith(
                     color: foreground,
                     height: 1.5,
                   ),
                 ),
               ),
+              if (split.diagnostics != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, left: 6, right: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.description_outlined,
+                        size: 12,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '已附带诊断信息',
+                        style: textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               Padding(
                 padding: const EdgeInsets.only(top: 4, left: 6, right: 6),
                 child: Text(
@@ -547,7 +635,9 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
             ),
             const SizedBox(width: 8),
             IconButton.filled(
-              onPressed: _sending ? null : _send,
+              onPressed: _sending || _controller.text.trim().isEmpty
+                  ? null
+                  : _send,
               tooltip: '发送',
               icon: _sending
                   ? const SizedBox(

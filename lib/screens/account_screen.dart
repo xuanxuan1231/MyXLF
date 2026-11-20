@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/raw_capture.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_top_bar.dart';
@@ -88,6 +89,8 @@ class AccountScreen extends StatelessWidget {
 
   Future<void> _logout(BuildContext context) async {
     await XlfClient.instance.clearSession();
+    // 原始响应可能包含上一账号的成绩与个人信息，退出时立即清空。
+    RawCaptureStore.instance.clear();
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(

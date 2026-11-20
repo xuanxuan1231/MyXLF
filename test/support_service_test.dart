@@ -121,24 +121,83 @@ void main() {
     });
   });
 
+  group('提交前置条件', () {
+    test('未开启遥测时拒绝新建工单', () async {
+      SupportService.instance.debugTokenOverride = 'test-token';
+
+      await expectLater(
+        SupportService.instance.sendMessage(message: '报告打不开'),
+        throwsA(
+          isA<SupportException>()
+              .having((e) => e.kind, 'kind', SupportErrorKind.invalidInput)
+              .having((e) => e.message, 'message', contains('匿名使用数据')),
+        ),
+      );
+    });
+
+    test('已开启遥测时允许新建工单（进入网络阶段）', () async {
+      SupportService.instance.debugTokenOverride = 'test-token';
+      TelemetryService.enableForTest();
+      await TelemetryService.instance.setConsent(enabled: true);
+      expect(TelemetryService.instance.isConsented, isTrue);
+
+      // 这里只验证前置校验放行；真实网络请求在测试环境不可用，
+      // 因此期望得到网络类错误，而不是「未开启」的输入错误。
+      await expectLater(
+        SupportService.instance.sendMessage(message: '报告打不开'),
+        throwsA(
+          isA<SupportException>().having(
+            (e) => e.kind,
+            'kind',
+            isNot(SupportErrorKind.invalidInput),
+          ),
+        ),
+      );
+    });
+
+    test('已有工单回复不要求遥测', () async {
+      SupportService.instance.debugTokenOverride = 'test-token';
+
+      await expectLater(
+        SupportService.instance.sendMessage(
+          message: '补充说明',
+          ticketId: 'ticket-1',
+        ),
+        throwsA(
+          isA<SupportException>().having(
+            (e) => e.kind,
+            'kind',
+            isNot(SupportErrorKind.invalidInput),
+          ),
+        ),
+      );
+    });
+  });
+
   group('诊断信息', () {
     test('包含版本、平台、设备 ID 与最近日志', () async {
       AppLog.instance.info('应用启动');
 
-      final text = await buildSupportDiagnostics(logLimit: 10);
+      final diagnostics = await buildSupportDiagnostics(logLimit: 10);
 
-      expect(text, contains('诊断信息'));
-      expect(text, contains('版本：'));
-      expect(text, contains('平台：'));
-      expect(text, contains('设备 ID：'));
-      expect(text, contains('最近日志：'));
-      expect(text, contains('应用启动'));
+      expect(diagnostics.summary, contains('版本：'));
+      expect(diagnostics.summary, contains('平台：'));
+      expect(diagnostics.summary, contains('设备 ID：'));
+      expect(diagnostics.logs, contains('应用启动'));
+      expect(diagnostics.previewText, contains('最近日志：'));
+      expect(diagnostics.traits['platform'], isNotEmpty);
+      // 发给客服的内容不应包含面向客户的提示文案。
+      expect(diagnostics.previewText, isNot(contains('自动附带')));
+      expect(diagnostics.sessionContext['recent_logs'], contains('应用启动'));
     });
 
-    test('日志为空时仍生成可读的诊断段落', () async {
-      final text = await buildSupportDiagnostics(logLimit: 10);
-      expect(text, contains('最近日志：'));
-      expect(text, contains('（无）'));
+    test('日志为空时预览只包含摘要', () async {
+      final diagnostics = await buildSupportDiagnostics(logLimit: 10);
+
+      expect(diagnostics.logs, isEmpty);
+      expect(diagnostics.previewText, diagnostics.summary);
+      expect(diagnostics.previewText, isNot(contains('最近日志')));
+      expect(diagnostics.sessionContext.containsKey('recent_logs'), isFalse);
     });
   });
 }
