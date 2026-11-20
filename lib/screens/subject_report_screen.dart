@@ -8,12 +8,12 @@ import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../widgets/chart_image.dart';
-import '../widgets/level_tag.dart';
 import '../widgets/offline_notice.dart';
 import '../widgets/question_answers_section.dart';
 import '../widgets/report_insights_card.dart';
 import '../widgets/report_page_scaffold.dart';
 import '../widgets/report_split_layout.dart';
+import '../widgets/score_level_badge.dart';
 import '../widgets/score_rate_chart.dart';
 import 'answer_sheet_screen.dart';
 
@@ -257,32 +257,14 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
-                    if (widget.level != null ||
-                        widget.criticalLevel != null) ...[
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          if (widget.level != null)
-                            LevelTag(
-                              label: '${widget.level}层次',
-                              background: scheme.secondaryContainer,
-                              foreground: scheme.onSecondaryContainer,
-                            ),
-                          if (widget.criticalLevel != null)
-                            LevelTag(
-                              label: '${widget.criticalLevel}层次临界',
-                              background: scheme.primaryContainer,
-                              foreground: scheme.onPrimaryContainer,
-                              icon: Icons.trending_up,
-                            ),
-                        ],
-                      ),
+                    if (widget.criticalLevel != null) ...[
+                      const SizedBox(height: 6),
+                      CriticalLevelHint(level: widget.criticalLevel!),
                     ],
                   ],
                 ),
               ),
+              if (widget.level != null) ScoreLevelBadge(level: widget.level!),
             ],
           ),
         ],
