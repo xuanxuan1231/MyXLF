@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""生成 MyXLF 多平台更新清单（manifest.json）。
+"""生成 MyXLF 更新清单（manifest.json）。
 
-发布工作流在收集完各平台产物后调用本脚本。清单与安装包一起上传到
-Cloudflare R2；客户端只读取清单，不访问 GitHub API。
+R2 只托管 Android APK 和清单；iOS / 桌面客户端的下载地址指向 GitHub
+Release 资产。所有平台都读取同一份清单，不访问 GitHub API。
 
 用法示例：
     python3 scripts/publish_update_manifest.py \
@@ -12,6 +12,7 @@ Cloudflare R2；客户端只读取清单，不访问 GitHub API。
         --revision 123456789-1 \
         --notes release-notes.md \
         --base-url https://myxlf.helloswx.top \
+        --github-download-base https://github.com/owner/repo/releases/download/v1.2.3 \
         --release-url https://github.com/owner/repo/releases/tag/v1.2.3 \
         --output dist/manifest.json
 """
@@ -56,8 +57,10 @@ def build_manifest(
     release_url: str,
     notes: str,
     revision: str = "",
+    github_download_base: str = "",
 ) -> dict:
     base = base_url.rstrip("/")
+    github_base = github_download_base.rstrip("/")
     # 把构建标识写进路径：同一版本重跑时也不会命中上一轮的 immutable 缓存。
     version_dir = f"releases/v{version}"
     if revision:
@@ -70,10 +73,18 @@ def build_manifest(
             path = dist / name
             if not path.is_file():
                 continue
+            if platform == "android":
+                # 只有 Android 安装包上传到 R2，用于应用内下载安装。
+                url = f"{base}/{version_dir}/{urllib.parse.quote(name)}"
+            elif github_base:
+                # 其他平台不占 R2 空间，直接指向 GitHub Release 资产。
+                url = f"{github_base}/{urllib.parse.quote(name)}"
+            else:
+                continue
             platforms[platform] = {
                 "version": version,
                 "build": build,
-                "url": f"{base}/{version_dir}/{urllib.parse.quote(name)}",
+                "url": url,
                 "size": path.stat().st_size,
                 "sha256": sha256_of(path),
             }
@@ -104,6 +115,7 @@ def main() -> int:
     parser.add_argument("--build", type=int, required=True)
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--release-url", default="")
+    parser.add_argument("--github-download-base", default="")
     parser.add_argument("--revision", default="")
     parser.add_argument("--notes", type=Path)
     parser.add_argument("--output", type=Path, default=Path("dist/manifest.json"))
@@ -133,6 +145,7 @@ def main() -> int:
         release_url=args.release_url.strip(),
         notes=notes,
         revision=args.revision.strip(),
+        github_download_base=args.github_download_base.strip(),
     )
 
     if not manifest["platforms"]:

@@ -667,63 +667,11 @@ jobs:
             --revision "$APP_REVISION" \
             --notes release-notes.md \
             --base-url "$R2_PUBLIC_BASE_URL" \
+            --github-download-base "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}" \
             --release-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}" \
             --output dist/manifest.json
           echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "更新清单：${R2_PUBLIC_BASE_URL%/}/manifest.json" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: 上传到 Cloudflare R2
-        if: steps.r2.outputs.configured == 'true'
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          # 新版 AWS CLI 默认使用 CRC64NVME，部分 R2 端点会拒绝；按需计算即可。
-          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-        run: |
-          set -euo pipefail
-          endpoint="$R2_ENDPOINT"
-          version_dir="releases/v${APP_VERSION}/${APP_REVISION}"
-
-          # 先上传版本化产物（长期缓存），最后更新根清单，避免客户端读到指向缺失文件的清单。
-          for file in dist/*; do
-            [ -f "$file" ] || continue
-            name="$(basename "$file")"
-            case "$name" in
-              *.aab|SHA256SUMS-*|manifest.json) continue ;;
-            esac
-            case "$name" in
-              *.apk) content_type="application/vnd.android.package-archive" ;;
-              *.zip) content_type="application/zip" ;;
-              *.tar.gz) content_type="application/gzip" ;;
-              *.ipa) content_type="application/octet-stream" ;;
-              *) content_type="application/octet-stream" ;;
-            esac
-            aws s3 cp "$file" "s3://${R2_BUCKET}/${version_dir}/${name}" \
-              --endpoint-url "$endpoint" \
-              --region auto \
-              --content-type "$content_type" \
-              --cache-control "public, max-age=31536000, immutable"
-          done
-
-          aws s3 cp dist/manifest.json "s3://${R2_BUCKET}/${version_dir}/manifest.json" \
-            --endpoint-url "$endpoint" \
-            --region auto \
-            --content-type "application/json; charset=utf-8" \
-            --cache-control "public, max-age=31536000, immutable"
-
-          if [[ "$APP_VERSION" == *-* ]]; then
-            # 预发布版本只保留版本化快照，不覆盖稳定版清单，避免正式用户收到 beta。
-            echo "预发布版本 $APP_VERSION：跳过根目录 manifest.json"
-          else
-            aws s3 cp dist/manifest.json "s3://${R2_BUCKET}/manifest.json" \
-              --endpoint-url "$endpoint" \
-              --region auto \
-              --content-type "application/json; charset=utf-8" \
-              --cache-control "public, max-age=60, must-revalidate"
-            echo "已上传至 ${R2_PUBLIC_BASE_URL%/}/manifest.json"
-          fi
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v3
@@ -735,3 +683,41 @@ jobs:
           prerelease: ${{ contains(needs.prepare.outputs.version, '-') }}
           files: dist/*
           fail_on_unmatched_files: true
+
+      - name: 上传 Android APK 与清单到 Cloudflare R2
+        if: steps.r2.outputs.configured == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # 新版 AWS CLI 默认使用 CRC64NVME，部分 R2 端点会拒绝；按需计算即可。
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          set -euo pipefail
+          apk="dist/MyXLF-${APP_VERSION}.apk"
+          object_dir="releases/v${APP_VERSION}/${APP_REVISION}"
+
+          # 只上传 Android APK；IPA / 桌面压缩包继续由 GitHub Release 托管。
+          if [ -f "$apk" ]; then
+            aws s3 cp "$apk" "s3://${R2_BUCKET}/${object_dir}/$(basename "$apk")" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --region auto \
+              --content-type "application/vnd.android.package-archive" \
+              --cache-control "public, max-age=31536000, immutable"
+          else
+            echo "::warning::本次没有 Android APK，跳过 APK 上传"
+          fi
+
+          if [[ "$APP_VERSION" == *-* ]]; then
+            # 预发布版本不覆盖稳定版清单，避免正式用户收到 beta。
+            echo "预发布版本 $APP_VERSION：跳过根目录 manifest.json"
+          else
+            # 根清单最后上传，确保它指向的 APK 已经先上传完成。
+            aws s3 cp dist/manifest.json "s3://${R2_BUCKET}/manifest.json" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --region auto \
+              --content-type "application/json; charset=utf-8" \
+              --cache-control "public, max-age=60, must-revalidate"
+            echo "已上传至 ${R2_PUBLIC_BASE_URL%/}/manifest.json"
+          fi

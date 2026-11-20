@@ -1,6 +1,6 @@
 # 应用内更新与 Cloudflare R2
 
-MyXLF 所有平台都通过同一个 `manifest.json` 检查更新，不再调用 GitHub API。发布工作流会把各平台安装包和清单上传到 Cloudflare R2，Android 客户端可以直接在应用内下载、校验并调起系统安装程序。
+MyXLF 所有平台都通过同一个 `manifest.json` 检查更新，不再调用 GitHub API。R2 只托管 **Android APK 和清单**；IPA / 桌面压缩包仍留在 GitHub Release，清单里的非 Android 下载地址会直接指向 GitHub 资产。Android 客户端可以在应用内下载、校验并调起系统安装程序。
 
 > 已经安装的旧版本仍会通过 GitHub API 检查更新；用户升级到包含本功能的版本后，才会切换到 R2 清单。
 
@@ -14,16 +14,10 @@ https://myxlf.helloswx.top/
 └── releases/
     └── v1.2.3/
         └── <run_id>-<attempt>/
-            ├── MyXLF-1.2.3.apk
-            ├── MyXLF-1.2.3.aab          # 不上传，仅保留在 GitHub Release
-            ├── MyXLF-1.2.3.ipa
-            ├── MyXLF-1.2.3-windows-x64.zip
-            ├── MyXLF-1.2.3-macos.zip
-            ├── MyXLF-1.2.3-linux-x64.tar.gz
-            └── manifest.json             # 该版本的清单快照
+            └── MyXLF-1.2.3.apk
 ```
 
-版本化目录以构建标识命名并使用长期缓存，`manifest.json` 使用 60 秒缓存；客户端请求时还会附加时间戳参数，避免 CDN 返回旧版本。
+IPA、AAB、Windows / macOS / Linux 压缩包不占 R2 空间，继续作为 GitHub Release 资产发布。版本化目录以构建标识命名并使用长期缓存，`manifest.json` 使用 60 秒缓存；客户端请求时还会附加时间戳参数，避免 CDN 返回旧版本。
 
 ## 清单格式
 
@@ -46,7 +40,13 @@ https://myxlf.helloswx.top/
       "size": 12345678,
       "sha256": "小写十六进制 SHA-256"
     },
-    "windows": { "...": "..." },
+    "windows": {
+      "version": "1.2.3",
+      "build": 123,
+      "url": "https://github.com/xuanxuan1231/MyXLF/releases/download/v1.2.3/MyXLF-1.2.3-windows-x64.zip",
+      "size": 12345678,
+      "sha256": "小写十六进制 SHA-256"
+    },
     "macos": { "...": "..." },
     "linux": { "...": "..." },
     "ios": { "...": "..." }
@@ -58,7 +58,7 @@ https://myxlf.helloswx.top/
 
 - 只读取当前平台对应的 `platforms.<platform>`。清单里没有该平台时不提示更新（Web 版默认由浏览器刷新自动更新，因此通常不写 `web` 条目）。
 - 先比较语义版本（`主.次.修订`），版本相同时再比较 `build`（Android 为 `versionCode`）。
-- Android 有 `url` 且带 `sha256` 时走应用内下载安装；其他平台打开当前平台的 `url`，没有时退回 `release_url`。
+- Android 有 `url` 且带 `sha256` 时走应用内下载安装（APK 来自 R2）；其他平台打开当前平台的 `url`（来自 GitHub Release），没有时退回 `release_url`。
 - 下载完成后校验 `size` 与 `sha256`，通过后才交给系统安装程序。
 
 清单由 [`scripts/publish_update_manifest.py`](../scripts/publish_update_manifest.py) 生成，大小和校验值直接读取发布产物，不需要手工维护。
@@ -153,14 +153,14 @@ fvm flutter build apk --release \
 
 ## 发版流程
 
-正常打标签或手动发版即可，工作流会在创建 GitHub Release 之前：
+正常打标签或手动发版即可，工作流会：
 
 1. 下载所有平台产物到 `dist/`。
 2. 用 git-cliff 生成 Release Notes。
 3. 生成 `dist/manifest.json`。
-4. 上传版本化产物到 `s3://myxlf/releases/v<version>/<run_id>-<attempt>/`。
-5. 覆盖上传根目录 `manifest.json`（版本号带 `-` 的预发布版本只上传版本化快照，不覆盖稳定版清单）。
-6. 创建 GitHub Release，并附带 `manifest.json`。
+4. 创建 GitHub Release，附带所有平台产物和 `manifest.json`；非 Android 的清单地址此时已经可用。
+5. 只把 Android APK 上传到 `s3://myxlf/releases/v<version>/<run_id>-<attempt>/`。
+6. 最后覆盖根目录 `manifest.json`（版本号带 `-` 的预发布版本跳过这一步）。
 
 如果两个 R2 访问密钥都未配置，工作流会给出 warning 并跳过上传，GitHub Release 仍会创建；但客户端不会收到这次更新。只配置了其中一个时工作流会直接失败，避免发布半套配置。
 
@@ -178,6 +178,7 @@ python3 scripts/publish_update_manifest.py \
   --version 1.2.3 \
   --build 123 \
   --base-url https://myxlf.helloswx.top \
+  --github-download-base https://github.com/xuanxuan1231/MyXLF/releases/download/v1.2.3 \
   --release-url https://github.com/xuanxuan1231/MyXLF/releases/tag/v1.2.3 \
   --output dist/manifest.json
 cat dist/manifest.json
