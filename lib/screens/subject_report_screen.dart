@@ -11,6 +11,7 @@ import '../widgets/chart_image.dart';
 import '../widgets/level_tag.dart';
 import '../widgets/offline_notice.dart';
 import '../widgets/question_answers_section.dart';
+import '../widgets/report_insights_card.dart';
 import '../widgets/report_page_scaffold.dart';
 import '../widgets/report_split_layout.dart';
 import '../widgets/score_rate_chart.dart';
@@ -148,42 +149,19 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [_sectionTitle('答卷'), _buildAnswerSheetSection(report)],
         ),
-      // 题型 / 知识点 / 能力属于成绩概况，放在左栏，避免被超长的逐题作答淹没。
-      if ((report.typeInsightComment ?? '').isNotEmpty)
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sectionTitle('题型掌握'),
-            _card(_insightText(report.typeInsightComment!)),
-          ],
-        ),
-      if (report.hasKnowledgeInsight)
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sectionTitle('知识点掌握'),
-            _card(
-              _buildMastery(
-                strengths: report.knowledgeStrengths,
-                weaknesses: report.knowledgeWeaknesses,
-                comment: report.knowledgeComment,
-              ),
-            ),
-          ],
-        ),
-      if (report.hasAbilityInsight)
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sectionTitle('学科能力'),
-            _card(
-              _buildMastery(
-                strengths: report.abilityStrengths,
-                weaknesses: report.abilityWeaknesses,
-                comment: report.abilityComment,
-              ),
-            ),
-          ],
+      // 题型 / 知识点 / 能力属于成绩概况，放在左栏并默认折叠，
+      // 避免长文本把成绩概况挤到屏幕外。
+      if (report.typeInsightComment != null ||
+          report.hasKnowledgeInsight ||
+          report.hasAbilityInsight)
+        ReportInsightsCard(
+          typeComment: report.typeInsightComment,
+          knowledgeStrengths: report.knowledgeStrengths,
+          knowledgeWeaknesses: report.knowledgeWeaknesses,
+          knowledgeComment: report.knowledgeComment,
+          abilityStrengths: report.abilityStrengths,
+          abilityWeaknesses: report.abilityWeaknesses,
+          abilityComment: report.abilityComment,
         ),
     ];
     final rightSections = <Widget>[
@@ -209,8 +187,8 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
         ),
     ];
 
-    // 宽屏：左栏固定显示成绩概况、答卷入口与知识点 / 能力掌握，右栏独立
-    // 滚动逐题作答、得失分分析与平台图表；左栏过高时可以单独滚动。
+    // 宽屏：左栏固定显示成绩概况、答卷入口与默认折叠的题型 / 知识点 / 能力，
+    // 右栏独立滚动逐题作答、得失分分析与平台图表；左栏过高时可以单独滚动。
     return ReportSplitLayout(
       leftSections: leftSections,
       rightSections: rightSections,
@@ -446,96 +424,6 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
             ),
           ],
         ],
-      ],
-    );
-  }
-
-  /// 单段说明文字（题型掌握等）。
-  Widget _insightText(String text) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(Icons.school_outlined, size: 16, color: scheme.primary),
-        const SizedBox(width: 8),
-        Expanded(child: Text(text, style: textTheme.bodyMedium)),
-      ],
-    );
-  }
-
-  /// 知识点 / 学科能力的逐项掌握情况。
-  Widget _buildMastery({
-    required List<String> strengths,
-    required List<String> weaknesses,
-    String? comment,
-  }) {
-    final textTheme = Theme.of(context).textTheme;
-    if (strengths.isEmpty && weaknesses.isEmpty) {
-      return Text(comment ?? '', style: textTheme.bodyMedium);
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (strengths.isNotEmpty)
-          _masteryGroup('掌握较好', strengths, positive: true),
-        if (strengths.isNotEmpty && weaknesses.isNotEmpty)
-          const SizedBox(height: 14),
-        if (weaknesses.isNotEmpty)
-          _masteryGroup('需要加强', weaknesses, positive: false),
-      ],
-    );
-  }
-
-  Widget _masteryGroup(
-    String label,
-    List<String> items, {
-    required bool positive,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    final appColors = AppColors.of(context);
-    final textTheme = Theme.of(context).textTheme;
-    final color = positive ? appColors.success : scheme.error;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(
-              positive ? Icons.check_circle_outline : Icons.error_outline,
-              size: 16,
-              color: color,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: textTheme.titleSmall?.copyWith(
-                color: color,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              '${items.length} 项',
-              style: textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        for (final item in items)
-          Padding(
-            padding: const EdgeInsets.only(left: 22, bottom: 5),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('· ', style: textTheme.bodyMedium?.copyWith(color: color)),
-                Expanded(child: Text(item, style: textTheme.bodyMedium)),
-              ],
-            ),
-          ),
       ],
     );
   }
