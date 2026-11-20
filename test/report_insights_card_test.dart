@@ -84,4 +84,25 @@ void main() {
     expect(find.text('知识点掌握'), findsNothing);
     expect(find.text('学科能力'), findsNothing);
   });
+
+  testWidgets('折叠入口为右侧圆形按钮，标题不带整块高亮背景', (tester) async {
+    await tester.pumpWidget(buildCard());
+    await tester.pumpAndSettle();
+
+    expect(
+      find.ancestor(of: find.text('题型掌握'), matching: find.byType(InkWell)),
+      findsNothing,
+    );
+
+    final button = tester.widget<IconButton>(find.byType(IconButton).first);
+    expect(button.tooltip, '展开');
+
+    await tester.tap(find.byType(IconButton).first);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('填空题'), findsOneWidget);
+    expect(
+      tester.widget<IconButton>(find.byType(IconButton).first).tooltip,
+      '收起',
+    );
+  });
 }

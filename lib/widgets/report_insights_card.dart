@@ -121,47 +121,65 @@ class _InsightSectionState extends State<_InsightSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        InkWell(
-          onTap: () => setState(() => _expanded = !_expanded),
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(4, 2, 4, 8),
-            child: Row(
-              children: [
-                Text(widget.title, style: textTheme.titleMedium),
-                if (widget.hint != null) ...[
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      widget.hint!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.right,
-                      style: textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(4, 2, 0, 4),
+              child: Row(
+                children: [
+                  Text(widget.title, style: textTheme.titleMedium),
+                  if (widget.hint != null) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.hint!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                        style: textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
+                  ] else
+                    const Spacer(),
+                  const SizedBox(width: 8),
+                  // 只有右侧的圆形按钮有悬停反馈，标题文字不再被一整块
+                  // 高亮背景包住，避免文字与反馈边界贴得太近。
+                  IconButton(
+                    onPressed: () => setState(() => _expanded = !_expanded),
+                    tooltip: _expanded ? '收起' : '展开',
+                    iconSize: 20,
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 32,
+                      height: 32,
+                    ),
+                    style: IconButton.styleFrom(
+                      foregroundColor: scheme.onSurfaceVariant,
+                      hoverColor: scheme.primary.withValues(alpha: 0.08),
+                      highlightColor: scheme.primary.withValues(alpha: 0.12),
+                      focusColor: scheme.primary.withValues(alpha: 0.08),
+                    ),
+                    icon: AnimatedRotation(
+                      turns: _expanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeInOutCubic,
+                      child: const Icon(Icons.expand_more),
+                    ),
                   ),
-                ] else
-                  const Spacer(),
-                const SizedBox(width: 4),
-                AnimatedRotation(
-                  turns: _expanded ? 0.5 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOut,
-                  child: Icon(
-                    Icons.expand_more,
-                    size: 20,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
         AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOutCubic,
           alignment: Alignment.topCenter,
           child: _expanded
               ? M3ESegmentedList(
