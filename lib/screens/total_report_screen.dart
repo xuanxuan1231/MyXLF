@@ -9,6 +9,7 @@ import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/chart_image.dart';
 import '../widgets/enhancement_notice.dart';
+import '../widgets/level_tag.dart';
 import '../widgets/offline_notice.dart';
 import '../widgets/report_page_scaffold.dart';
 import '../widgets/report_split_layout.dart';
@@ -602,6 +603,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
                         '$criticalLevel层次临界',
                         scheme.primaryContainer,
                         scheme.onPrimaryContainer,
+                        icon: Icons.trending_up,
                       ),
                     if (absent)
                       _subjectToneTag(
@@ -650,21 +652,17 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     );
   }
 
-  Widget _subjectToneTag(String label, Color background, Color foreground) {
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: textTheme.labelSmall?.copyWith(
-          color: foreground,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+  Widget _subjectToneTag(
+    String label,
+    Color background,
+    Color foreground, {
+    IconData? icon,
+  }) {
+    return LevelTag(
+      label: label,
+      background: background,
+      foreground: foreground,
+      icon: icon,
     );
   }
 
@@ -687,20 +685,10 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
 
   Widget _subjectLevelTag(String label) {
     final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: scheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: textTheme.labelSmall?.copyWith(
-          color: scheme.onSecondaryContainer,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+    return LevelTag(
+      label: label,
+      background: scheme.secondaryContainer,
+      foreground: scheme.onSecondaryContainer,
     );
   }
 

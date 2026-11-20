@@ -871,6 +871,15 @@ class SubjectReport {
   /// 学科能力水平说明（没有逐项列表时展示）。
   final String? abilityComment;
 
+  /// 题型掌握统一入口：优先使用「你能很好地掌握……」评语，
+  /// 没有时回退到「各题型得分情况与年级基本持平」。
+  String? get typeInsightComment {
+    final mastery = (typeMasteryComment ?? '').trim();
+    if (mastery.isNotEmpty) return mastery;
+    final comment = (typeComment ?? '').trim();
+    return comment.isEmpty ? null : comment;
+  }
+
   /// 图表图片地址（预留入口）。
   final List<String> chartImages;
 

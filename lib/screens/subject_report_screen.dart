@@ -8,6 +8,7 @@ import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../widgets/chart_image.dart';
+import '../widgets/level_tag.dart';
 import '../widgets/offline_notice.dart';
 import '../widgets/question_answers_section.dart';
 import '../widgets/report_page_scaffold.dart';
@@ -147,13 +148,13 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [_sectionTitle('答卷'), _buildAnswerSheetSection(report)],
         ),
-      // 知识点 / 能力属于成绩概况，放在左栏，避免被超长的逐题作答淹没。
-      if ((report.typeMasteryComment ?? '').isNotEmpty)
+      // 题型 / 知识点 / 能力属于成绩概况，放在左栏，避免被超长的逐题作答淹没。
+      if ((report.typeInsightComment ?? '').isNotEmpty)
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _sectionTitle('题型掌握'),
-            _card(_insightText(report.typeMasteryComment!)),
+            _card(_insightText(report.typeInsightComment!)),
           ],
         ),
       if (report.hasKnowledgeInsight)
@@ -286,16 +287,16 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
                         runSpacing: 6,
                         children: [
                           if (widget.level != null)
-                            _heroTag(
-                              '${widget.level}层次',
-                              scheme.secondaryContainer,
-                              scheme.onSecondaryContainer,
+                            LevelTag(
+                              label: '${widget.level}层次',
+                              background: scheme.secondaryContainer,
+                              foreground: scheme.onSecondaryContainer,
                             ),
                           if (widget.criticalLevel != null)
-                            _heroTag(
-                              '${widget.criticalLevel}层次临界',
-                              scheme.primaryContainer,
-                              scheme.onPrimaryContainer,
+                            LevelTag(
+                              label: '${widget.criticalLevel}层次临界',
+                              background: scheme.primaryContainer,
+                              foreground: scheme.onPrimaryContainer,
                               icon: Icons.trending_up,
                             ),
                         ],
@@ -305,38 +306,6 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
                 ),
               ),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _heroTag(
-    String label,
-    Color background,
-    Color foreground, {
-    IconData? icon,
-  }) {
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 13, color: foreground),
-            const SizedBox(width: 3),
-          ],
-          Text(
-            label,
-            style: textTheme.labelMedium?.copyWith(
-              color: foreground,
-              fontWeight: FontWeight.w600,
-            ),
           ),
         ],
       ),
@@ -401,8 +370,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
 
   bool _hasGainLoss(SubjectReport report) {
     return report.gainLossStats.isNotEmpty ||
-        (report.gainLossText ?? '').isNotEmpty ||
-        (report.typeComment ?? '').isNotEmpty;
+        (report.gainLossText ?? '').isNotEmpty;
   }
 
   Widget _buildGainLoss(SubjectReport report) {

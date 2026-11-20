@@ -386,6 +386,46 @@ void main() {
       expect(report.abilityComment, isNull);
       expect(report.hasAbilityInsight, isFalse);
     });
+
+    test('题型掌握仅正面评语时直接展示', () {
+      final report = Parsers.parseSubjectReport('''
+      <html><body>
+      <span class="stu_rpt_content">你能很好地掌握“填空题”类型的试题的作答。</span>
+      </body></html>
+      ''');
+      expect(report.typeMasteryComment, '你能很好地掌握“填空题”类型的试题的作答。');
+      expect(report.typeInsightComment, report.typeMasteryComment);
+    });
+
+    test('题型掌握仅负面评语时直接展示', () {
+      final report = Parsers.parseSubjectReport('''
+      <html><body>
+      <span class="stu_rpt_content">在“材料题、单项选择题”类型的试题上，你还存在一定的差距，需要加强对这类题型的训练。</span>
+      </body></html>
+      ''');
+      expect(report.typeMasteryComment, contains('存在一定的差距'));
+      expect(report.typeInsightComment, report.typeMasteryComment);
+    });
+
+    test('没有专项评语时回退到各题型得分情况', () {
+      final report = Parsers.parseSubjectReport('''
+      <html><body>
+      <table><tr><td>你的各题型得分情况与年级基本持平。</td></tr></table>
+      </body></html>
+      ''');
+      expect(report.typeMasteryComment, isNull);
+      expect(report.typeComment, contains('各题型得分情况'));
+      expect(report.typeInsightComment, contains('基本持平'));
+    });
+
+    test('没有任何题型说明时不生成题型掌握板块', () {
+      final report = Parsers.parseSubjectReport(
+        '<html><body><div>没有题型信息</div></body></html>',
+      );
+      expect(report.typeComment, isNull);
+      expect(report.typeMasteryComment, isNull);
+      expect(report.typeInsightComment, isNull);
+    });
   });
 
   group('登录历史解析', () {
