@@ -3,6 +3,7 @@ import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../services/account_store.dart';
+import '../services/app_log.dart';
 import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import 'login_screen.dart';
@@ -49,6 +50,10 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
     try {
       accounts = await AccountStore.instance.load();
     } catch (e) {
+      AppLog.instance.error(
+        '读取账号失败',
+        attributes: {'type': e.runtimeType.toString()},
+      );
       if (!mounted) return;
       _goto(LoginScreen(initialError: '读取账号失败：$e'), 'Login');
       return;
@@ -78,6 +83,7 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       return;
     }
     try {
+      AppLog.instance.debug('使用保存的账号自动登录');
       final result = await XlfClient.instance.login(
         defaultAccount.username,
         defaultAccount.password,

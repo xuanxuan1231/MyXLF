@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'screens/bootstrap_screen.dart';
+import 'services/app_log.dart';
 import 'services/enhancement_settings.dart';
 import 'services/export_preferences.dart';
 import 'services/telemetry.dart';
@@ -19,14 +20,27 @@ void main() {
       WidgetsFlutterBinding.ensureInitialized();
       // 遥测初始化：用户同意前不采集任何数据；失败时静默跳过。
       await TelemetryService.instance.init();
+      AppLog.instance.info(
+        '应用启动',
+        attributes: {
+          'app_env': TelemetryService.envName,
+          'platform': TelemetryService.platformName,
+        },
+      );
       // 增强功能默认开启，先读取本地开关再构建界面，避免首帧闪烁。
       await EnhancementSettings.instance.init();
       // 导出隐私模式默认开启，读取用户上次的选择。
       await ExportPreferences.instance.init();
 
-      // 未捕获异常统一上报到 PostHog（崩溃 / 异常堆栈 / 稳定性统计）。
+      // 未捕获异常统一上报到 PostHog（崩溃 / 异常堆栈 / 稳定性统计），
+      // 同时写入本机诊断日志，便于工单排查。
       FlutterError.onError = (details) {
         FlutterError.presentError(details);
+        AppLog.instance.exception(
+          details.exception,
+          details.stack ?? StackTrace.current,
+          context: 'flutter_framework',
+        );
         unawaited(
           TelemetryService.instance.reportError(
             details.exception,
@@ -37,6 +51,7 @@ void main() {
       };
       PlatformDispatcher.instance.onError = (error, stack) {
         if (kDebugMode) debugPrint('未捕获的异步异常：$error\n$stack');
+        AppLog.instance.exception(error, stack, context: 'dart_runtime');
         // 遥测关闭时保留 Flutter 默认的未捕获异常行为，不做静默吞掉。
         if (!TelemetryService.instance.isEnabled) return false;
         unawaited(
@@ -65,6 +80,7 @@ void main() {
     },
     (error, stack) {
       if (kDebugMode) debugPrint('未捕获的异步异常：$error\n$stack');
+      AppLog.instance.exception(error, stack, context: 'zone');
       unawaited(TelemetryService.instance.reportZoneError(error, stack));
     },
   );

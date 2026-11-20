@@ -51,6 +51,7 @@ class _PrivacyConsentScreenState extends State<PrivacyConsentScreen> {
           const AppTopBar(title: '可选访问信息收集'),
         ],
         body: SafeArea(
+          top: false,
           child: LayoutBuilder(
             builder: (context, constraints) => ListView(
               padding: centeredPadding(

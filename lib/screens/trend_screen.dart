@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/app_log.dart';
 import '../services/enhancement_settings.dart';
 import '../services/offline_cache.dart';
 import '../services/parsers.dart';
@@ -180,6 +181,10 @@ class _TrendScreenState extends State<TrendScreen> {
             report = Parsers.parseTotalReport(cached.html);
             fromCache = true;
             cachedAt = cached.savedAt;
+            AppLog.instance.debug(
+              '趋势报告使用离线缓存',
+              attributes: {'test_id': exam.testId},
+            );
           } catch (_) {
             // 缓存损坏时跳过这次考试，继续加载其他考试。
           }

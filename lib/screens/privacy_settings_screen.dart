@@ -3,10 +3,12 @@ import 'package:m3e_core/m3e_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config.dart';
+import '../services/app_log.dart';
 import '../services/telemetry.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_top_bar.dart';
 import '../widgets/telemetry_notice.dart';
+import 'log_viewer_screen.dart';
 
 /// 隐私与遥测设置页：随时开启 / 退出匿名使用数据收集。
 class PrivacySettingsScreen extends StatefulWidget {
@@ -87,6 +89,17 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
     }
   }
 
+  Future<void> _openLogs() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const LogViewerScreen(),
+        settings: const RouteSettings(name: 'Diagnostic Logs'),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -137,7 +150,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                     !buildEnabled
                         ? '当前为 debug 构建，遥测已自动关闭'
                         : _enabled
-                        ? '仅用于改进应用，不包含任何个人信息'
+                        ? '用于改进应用，包含使用统计、崩溃与诊断日志'
                         : '已退出，之后不会再上报任何数据',
                   ),
                 ),
@@ -165,11 +178,15 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
               const SizedBox(height: 24),
               const _SectionLabel('设备与数据'),
               M3ESegmentedList(
-                itemCount: 3,
+                itemCount: 4,
                 outerRadius: 24,
                 padding: EdgeInsets.zero,
                 onTap: (i) {
-                  if (i == 2) _openUrl(kPosthogPrivacyUrl);
+                  if (i == 2) {
+                    _openLogs();
+                  } else if (i == 3) {
+                    _openUrl(kPosthogPrivacyUrl);
+                  }
                 },
                 itemBuilder: (_, i) {
                   switch (i) {
@@ -188,6 +205,26 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                         subtitle: buildEnabled
                             ? '${TelemetryService.envName}（事件属性 app_env）'
                             : '${TelemetryService.envName}（遥测已关闭）',
+                      );
+                    case 2:
+                      final logsSupported = TelemetryService.logsSupported;
+                      final logsLive = _enabled && logsSupported;
+                      return _infoTile(
+                        scheme,
+                        icon: Icons.notes_outlined,
+                        title: '诊断日志',
+                        subtitle:
+                            '本机保留最近 ${AppLog.instance.length} 条，'
+                            '${logsLive
+                                ? '并实时上报到 PostHog'
+                                : logsSupported
+                                ? '当前仅保存在本机'
+                                : '当前平台仅保存在本机'}',
+                        trailing: Icon(
+                          Icons.chevron_right,
+                          size: 20,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       );
                     default:
                       return _infoTile(
@@ -216,7 +253,8 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      '你的账号、成绩与答卷永远不会被上报',
+                      '自动收集的内容不包含账号、姓名、学校 / 班级、成绩与答卷内容；'
+                      '工单内容由你主动填写',
                       style: textTheme.bodySmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -257,7 +295,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
       badgeBackground = scheme.errorContainer;
       badgeForeground = scheme.onErrorContainer;
     } else if (_enabled) {
-      description = '仅收集改进应用所需的匿名统计，不关联你的账号信息。';
+      description = '仅收集改进应用所需的匿名统计、崩溃与诊断日志，不关联你的账号信息。';
       badge = '已开启';
       badgeBackground = scheme.primaryContainer;
       badgeForeground = scheme.primary;

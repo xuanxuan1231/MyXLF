@@ -14,12 +14,18 @@ class AppTopBar extends StatelessWidget {
     this.subtitle,
     this.leading,
     this.actions = const <Widget>[],
+    this.compact = false,
   });
 
   final String title;
   final String? subtitle;
   final Widget? leading;
   final List<Widget> actions;
+
+  /// 强制使用紧凑工具栏（不随滚动收起大标题）。
+  ///
+  /// 内容较短的页面使用它可以避免「没有内容也能上下拖动」的错觉。
+  final bool compact;
 
   /// medium app bar 收缩后的高度。
   static const double _mediumCollapsedHeight = 64;
@@ -41,9 +47,10 @@ class AppTopBar extends StatelessWidget {
     // 避免把移动端的大标题栏带到桌面上。
     // 把平台判断放在前面短路，桌面端就不用依赖 MediaQuery 宽度，
     // 窗口缩放时不会每帧重建顶栏。
-    final desktop = context.isDesktopPlatform || context.useSideNavigation;
+    final compactBar =
+        compact || context.isDesktopPlatform || context.useSideNavigation;
 
-    if (desktop) {
+    if (compactBar) {
       return SliverLayoutBuilder(
         builder: (context, constraints) {
           return SliverAppBar(
