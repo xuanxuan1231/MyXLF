@@ -97,6 +97,109 @@ void main() {
       expect(info.isUpdateAvailable, isFalse);
     });
 
+    test('Android 优先选择与当前 ABI 匹配的拆分安装包', () {
+      final data = manifest();
+      (data['platforms']['android'] as Map)['abis'] = {
+        'arm64-v8a': {
+          'version': '1.2.3',
+          'build': 123,
+          'url':
+              'https://example.com/releases/v1.2.3/MyXLF-1.2.3-arm64-v8a.apk',
+          'size': 512,
+          'sha256': 'AAAA1111',
+        },
+        'armeabi-v7a': {
+          'url':
+              'https://example.com/releases/v1.2.3/MyXLF-1.2.3-armeabi-v7a.apk',
+          'size': 256,
+          'sha256': 'BBBB2222',
+        },
+      };
+
+      final info = UpdateChecker.parseManifest(
+        data,
+        currentVersion: '1.0.0',
+        currentBuildNumber: '42',
+        platform: 'android',
+        abi: 'arm64-v8a',
+      );
+
+      expect(info.abi, 'arm64-v8a');
+      expect(info.downloadUrl, endsWith('MyXLF-1.2.3-arm64-v8a.apk'));
+      expect(info.sizeBytes, 512);
+      expect(info.sha256, 'aaaa1111');
+    });
+
+    test('清单没有当前 ABI 时回退到通用安装包', () {
+      final data = manifest();
+      (data['platforms']['android'] as Map)['abis'] = {
+        'arm64-v8a': {
+          'url':
+              'https://example.com/releases/v1.2.3/MyXLF-1.2.3-arm64-v8a.apk',
+          'size': 512,
+          'sha256': 'AAAA1111',
+        },
+      };
+
+      final info = UpdateChecker.parseManifest(
+        data,
+        currentVersion: '1.0.0',
+        currentBuildNumber: '42',
+        platform: 'android',
+        abi: 'x86_64',
+      );
+
+      expect(info.abi, isNull);
+      expect(info.downloadUrl, endsWith('MyXLF-1.2.3.apk'));
+      expect(info.sizeBytes, 1024);
+    });
+
+    test('ABI 条目缺少校验值时回退到通用安装包', () {
+      final data = manifest();
+      (data['platforms']['android'] as Map)['abis'] = {
+        'arm64-v8a': {
+          'url':
+              'https://example.com/releases/v1.2.3/MyXLF-1.2.3-arm64-v8a.apk',
+          'size': 512,
+        },
+      };
+
+      final info = UpdateChecker.parseManifest(
+        data,
+        currentVersion: '1.0.0',
+        currentBuildNumber: '42',
+        platform: 'android',
+        abi: 'arm64-v8a',
+      );
+
+      expect(info.abi, isNull);
+      expect(info.downloadUrl, endsWith('MyXLF-1.2.3.apk'));
+      expect(info.sha256, 'abcdef0123456789');
+    });
+
+    test('非 Android 平台忽略 ABI 条目', () {
+      final data = manifest();
+      (data['platforms']['android'] as Map)['abis'] = {
+        'arm64-v8a': {
+          'url':
+              'https://example.com/releases/v1.2.3/MyXLF-1.2.3-arm64-v8a.apk',
+          'size': 512,
+          'sha256': 'AAAA1111',
+        },
+      };
+
+      final info = UpdateChecker.parseManifest(
+        data,
+        currentVersion: '1.0.0',
+        currentBuildNumber: '42',
+        platform: 'windows',
+        abi: 'arm64-v8a',
+      );
+
+      expect(info.abi, isNull);
+      expect(info.downloadUrl, endsWith('MyXLF-1.2.3-windows-x64.zip'));
+    });
+
     test('清单缺少当前平台时不提示更新', () {
       final info = UpdateChecker.parseManifest(
         manifest(),

@@ -14,7 +14,10 @@ https://myxlf.helloswx.top/
 └── releases/
     └── v1.2.3/
         └── <run_id>-<attempt>/
-            └── MyXLF-1.2.3.apk
+            ├── MyXLF-1.2.3-arm64-v8a.apk   # 64 位 ARM（绝大多数手机）
+            ├── MyXLF-1.2.3-armeabi-v7a.apk # 32 位 ARM（老设备）
+            ├── MyXLF-1.2.3-x86_64.apk      # 模拟器
+            └── MyXLF-1.2.3.apk             # 通用包（过渡期，兼容旧客户端）
 ```
 
 IPA、AAB、Windows / macOS / Linux 压缩包不占 R2 空间，继续作为 GitHub Release 资产发布。版本化目录以构建标识命名并使用长期缓存，`manifest.json` 使用 60 秒缓存；客户端请求时还会附加时间戳参数，避免 CDN 返回旧版本。
@@ -37,8 +40,19 @@ IPA、AAB、Windows / macOS / Linux 压缩包不占 R2 空间，继续作为 Git
       "version": "1.2.3",
       "build": 123,
       "url": "https://myxlf.helloswx.top/releases/v1.2.3/<run_id>-<attempt>/MyXLF-1.2.3.apk",
-      "size": 12345678,
-      "sha256": "小写十六进制 SHA-256"
+      "size": 67108864,
+      "sha256": "通用包的小写十六进制 SHA-256",
+      "abis": {
+        "arm64-v8a": {
+          "version": "1.2.3",
+          "build": 123,
+          "url": "https://myxlf.helloswx.top/releases/v1.2.3/<run_id>-<attempt>/MyXLF-1.2.3-arm64-v8a.apk",
+          "size": 27367834,
+          "sha256": "小写十六进制 SHA-256"
+        },
+        "armeabi-v7a": { "...": "..." },
+        "x86_64": { "...": "..." }
+      }
     },
     "windows": {
       "version": "1.2.3",
@@ -58,8 +72,44 @@ IPA、AAB、Windows / macOS / Linux 压缩包不占 R2 空间，继续作为 Git
 
 - 只读取当前平台对应的 `platforms.<platform>`。清单里没有该平台时不提示更新（Web 版默认由浏览器刷新自动更新，因此通常不写 `web` 条目）。
 - 先比较语义版本（`主.次.修订`），版本相同时再比较 `build`（Android 为 `versionCode`）。
+- Android 会先按当前**进程**的 ABI（`Abi.current()`）在 `platforms.android.abis` 里查找匹配的安装包；没有匹配项或字段不完整时，回退到 `platforms.android` 顶层的通用条目。用进程 ABI 而不是设备首选 ABI，是为了避免 32 位进程下载 64 位安装包导致系统拒绝安装。
 - Android 有 `url` 且带 `sha256` 时走应用内下载安装（APK 来自 R2）；其他平台打开当前平台的 `url`（来自 GitHub Release），没有时退回 `release_url`。
 - 下载完成后校验 `size` 与 `sha256`，通过后才交给系统安装程序。
+
+## 按 ABI 拆分安装包
+
+Android 构建默认会生成包含三套原生库的通用 APK（约 64MB）。发布工作流现在改为：
+
+```bash
+flutter build apk --release --split-per-abi
+```
+
+产物与体积（实测）：
+
+| 产物 | 大小 |
+| --- | --- |
+| `app-arm64-v8a-release.apk` | ≈ 26MB |
+| `app-armeabi-v7a-release.apk` | ≈ 24MB |
+| `app-x86_64-release.apk` | ≈ 28MB |
+
+`android/gradle.properties` 中设置了 `force-version-code-ignoring-abi=true`。Flutter 默认会给拆分包的 `versionCode` 加 1000 / 2000 / 4000 的 ABI 偏移，这会让清单里的 `build` 与已安装版本对不上，也可能在切换分发渠道时造成降级安装失败。统一使用构建号后，拆分包、通用包和 AAB 的 `versionCode` 保持一致。
+
+拆分 APK 只用于 R2 / GitHub 侧载，不上传应用商店；AAB 不受该开关影响。
+
+## 旧客户端如何平滑过渡
+
+| 已安装版本 | 更新来源 | 过渡方式 |
+| --- | --- | --- |
+| < v2.1.0 | GitHub `/releases/latest` | 只比较 release tag，不读清单。GitHub Release 继续附带通用 APK，按原逻辑打开下载页即可升级。 |
+| v2.1.0 ~ 引入 ABI 前的版本 | 清单 `platforms.android.url` | 过渡期顶层条目仍指向通用 APK，因此能正常下载并升级到新客户端。 |
+| 引入 ABI 后的新客户端 | 清单 `platforms.android.abis.<abi>` | 直接下载匹配当前进程的拆分包；清单没有 `abis` 时自动回退到顶层条目。 |
+
+设计要点：
+
+- `abis` 是**向后兼容的增量字段**。旧客户端忽略它，新客户端在缺少它时回退，因此客户端与发布脚本可以任意顺序上线，不需要同时切换。
+- 过渡期由 workflow 顶部的 `ANDROID_UNIVERSAL_APK` 控制（默认 `'true'`），会额外构建并上传通用 APK。建议保留 1–2 个版本，观察旧版本用户升级情况后再改为 `'false'`。
+- 改为 `'false'` 后，顶层 `android.url` 会自动指向 arm64 拆分包。极少数 32 位专用设备需要从 GitHub Release 手动选择 `armeabi-v7a` 包；如果仍需自动覆盖这类设备，保持开关为 `'true'`。
+- 无论走哪条路径，新旧 APK 必须使用同一签名，且 `versionCode` 持续递增，否则系统会拒绝覆盖安装。
 
 清单由 [`scripts/publish_update_manifest.py`](../scripts/publish_update_manifest.py) 生成，大小和校验值直接读取发布产物，不需要手工维护。
 
@@ -159,7 +209,7 @@ fvm flutter build apk --release \
 2. 用 git-cliff 生成 Release Notes。
 3. 生成 `dist/manifest.json`。
 4. 创建 GitHub Release，附带所有平台产物和 `manifest.json`；非 Android 的清单地址此时已经可用。
-5. 只把 Android APK 上传到 `s3://myxlf/releases/v<version>/<run_id>-<attempt>/`。
+5. 只把 Android APK（通用包 + 按 ABI 拆分包）上传到 `s3://myxlf/releases/v<version>/<run_id>-<attempt>/`。
 6. 最后覆盖根目录 `manifest.json`（版本号带 `-` 的预发布版本跳过这一步）。
 
 如果两个 R2 访问密钥都未配置，工作流会给出 warning 并跳过上传，GitHub Release 仍会创建；但客户端不会收到这次更新。只配置了其中一个时工作流会直接失败，避免发布半套配置。
@@ -192,6 +242,8 @@ curl -fsSL https://myxlf.helloswx.top/manifest.json | jq .
 
 测试 Android 应用内更新时，当前安装包的 `versionName` / `versionCode` 必须小于清单中的值，并且新旧 APK 必须使用同一签名；否则系统会拒绝覆盖安装。
 
+模拟拆分包发布时，把 `MyXLF-1.2.3.apk` 换成 `MyXLF-1.2.3-arm64-v8a.apk` 等文件即可；没有通用包时脚本会给出 warning，并把顶层 `android.url` 指向 arm64 包。
+
 ## Google Play 注意
 
 应用内更新依赖 `REQUEST_INSTALL_PACKAGES` 权限，并会下载 APK 调用系统安装程序。这个权限和自更新行为可能触发 Google Play 的「设备与网络滥用」政策审核；如果主要通过 Google Play 分发，建议改用 Play In-App Updates，或在 Play 渠道构建中移除该权限与入口。GitHub Release / 官网 APK 渠道不受影响。
@@ -206,5 +258,6 @@ curl -fsSL https://myxlf.helloswx.top/manifest.json | jq .
 | 下载后提示「安装包校验失败」 | R2 上的 APK 与清单不匹配，重新发版或清理 CDN 缓存 |
 | 点击更新后跳到系统设置 | Android 8+ 首次安装需要允许「安装未知应用」，授权后回到应用点「继续安装」 |
 | 系统提示「应用未安装」 | 新旧 APK 签名不一致、版本号没有增大，或安装包损坏 |
+| 系统提示「应用未安装」（拆分包） | 下载了与设备 ABI 不匹配的包，检查清单 `abis` 与客户端 `Abi.current()` 映射是否一致 |
 | 更新后仍提示有新版本 | 客户端版本号 / 构建号没有随发版更新，检查 `pubspec.yaml` 与 workflow 的 `--build-number` |
 | 刚发版客户端还看不到 | 根清单有 60 秒缓存，稍等后重试；客户端请求也会带时间戳绕过缓存 |

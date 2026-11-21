@@ -28,8 +28,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # 平台 -> 候选产物。按顺序取第一个存在的文件。
+# Android 单独处理（见 `build_android_entry`），因为需要同时支持按 ABI 拆分的安装包。
 ARTIFACTS: dict[str, list[str]] = {
-    "android": ["MyXLF-{version}.apk"],
     "ios": [
         "MyXLF-{version}.ipa",
         "MyXLF-{version}-unsigned.ipa",
@@ -39,6 +39,13 @@ ARTIFACTS: dict[str, list[str]] = {
     "linux": ["MyXLF-{version}-linux-x64.tar.gz"],
 }
 
+# 与 `flutter build apk --split-per-abi` 的产物后缀、客户端 `Abi.current()` 映射一致。
+ANDROID_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
+
+# 没有通用包时，顶层 `url` 退回哪个 ABI。
+# 选 arm64 是因为 32 位专用设备已经非常少见，而 64 位专用设备越来越多。
+ANDROID_FALLBACK_ABI = "arm64-v8a"
+
 
 def sha256_of(path: Path) -> str:
     digest = hashlib.sha256()
@@ -46,6 +53,63 @@ def sha256_of(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def build_android_entry(
+    *,
+    dist: Path,
+    version: str,
+    build: int,
+    base: str,
+    version_dir: str,
+) -> dict | None:
+    """生成 Android 平台条目。
+
+    同时写入按 ABI 拆分的 `abis` 与顶层通用条目：
+
+    - 新客户端读取 `abis.<abi>`，只下载匹配当前进程的安装包；
+    - 旧客户端只认识顶层 `url`，因此在过渡期仍提供通用 APK 作为回退。
+    """
+    universal = dist / f"MyXLF-{version}.apk"
+    abi_paths = {
+        abi: dist / f"MyXLF-{version}-{abi}.apk" for abi in ANDROID_ABIS
+    }
+    abi_paths = {abi: path for abi, path in abi_paths.items() if path.is_file()}
+
+    if not universal.is_file() and not abi_paths:
+        return None
+
+    def artifact(path: Path) -> dict:
+        return {
+            "url": f"{base}/{version_dir}/{urllib.parse.quote(path.name)}",
+            "size": path.stat().st_size,
+            "sha256": sha256_of(path),
+        }
+
+    # 顶层条目必须能被不认识 `abis` 的旧客户端直接安装：优先通用包，
+    # 没有时退回 arm64（覆盖绝大多数设备）。
+    if universal.is_file():
+        legacy = universal
+    elif ANDROID_FALLBACK_ABI in abi_paths:
+        legacy = abi_paths[ANDROID_FALLBACK_ABI]
+    else:
+        legacy = next(iter(abi_paths.values()))
+
+    if not universal.is_file() and abi_paths:
+        print(
+            "警告：未找到通用 APK，顶层 android.url 将指向 "
+            f"{legacy.name}，32 位专用设备可能无法安装。",
+            file=sys.stderr,
+        )
+
+    entry: dict = {"version": version, "build": build}
+    entry.update(artifact(legacy))
+    if abi_paths:
+        entry["abis"] = {
+            abi: {"version": version, "build": build, **artifact(path)}
+            for abi, path in abi_paths.items()
+        }
+    return entry
 
 
 def build_manifest(
@@ -67,24 +131,29 @@ def build_manifest(
         version_dir += f"/{revision}"
     platforms: dict[str, dict] = {}
 
+    android = build_android_entry(
+        dist=dist,
+        version=version,
+        build=build,
+        base=base,
+        version_dir=version_dir,
+    )
+    if android is not None:
+        platforms["android"] = android
+
     for platform, candidates in ARTIFACTS.items():
         for template in candidates:
             name = template.format(version=version)
             path = dist / name
             if not path.is_file():
                 continue
-            if platform == "android":
-                # 只有 Android 安装包上传到 R2，用于应用内下载安装。
-                url = f"{base}/{version_dir}/{urllib.parse.quote(name)}"
-            elif github_base:
-                # 其他平台不占 R2 空间，直接指向 GitHub Release 资产。
-                url = f"{github_base}/{urllib.parse.quote(name)}"
-            else:
+            if not github_base:
                 continue
+            # 其他平台不占 R2 空间，直接指向 GitHub Release 资产。
             platforms[platform] = {
                 "version": version,
                 "build": build,
-                "url": url,
+                "url": f"{github_base}/{urllib.parse.quote(name)}",
                 "size": path.stat().st_size,
                 "sha256": sha256_of(path),
             }

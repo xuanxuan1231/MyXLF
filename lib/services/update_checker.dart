@@ -4,6 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
+import 'device_abi.dart';
 
 /// 更新检查异常（携带面向用户的提示文案）。
 class UpdateCheckException implements Exception {
@@ -28,6 +29,7 @@ class UpdateInfo {
     this.sizeBytes,
     this.latestBuild,
     this.platform = '',
+    this.abi,
   });
 
   /// 当前应用版本号（如 1.0.0）。
@@ -59,6 +61,9 @@ class UpdateInfo {
 
   /// 当前运行平台在清单中的键（android / ios / windows / macos / linux / web）。
   final String platform;
+
+  /// 本次选中的 Android ABI（如 `arm64-v8a`）；非 Android 或使用通用包时为 null。
+  final String? abi;
 }
 
 /// 更新检查服务：读取 Cloudflare R2 上的更新清单并与当前版本比较。
@@ -151,6 +156,8 @@ class UpdateChecker {
     final current = await currentVersion();
     final currentBuild = await currentBuildNumber();
     final platform = platformKey();
+    // 只有 Android 会按 ABI 选择安装包；其他平台传 null 走通用条目。
+    final abi = platform == 'android' ? currentAndroidAbi() : null;
 
     final manifestUri = Uri.tryParse(kUpdateManifestUrl);
     if (manifestUri == null ||
@@ -188,10 +195,14 @@ class UpdateChecker {
       currentVersion: current,
       currentBuildNumber: currentBuild,
       platform: platform,
+      abi: abi,
     );
   }
 
   /// 解析清单并生成 [UpdateInfo]。
+  ///
+  /// [abi] 为当前 Android 进程的 ABI；清单里存在对应拆分安装包时优先使用，
+  /// 否则回退到 `platforms.android` 顶层的通用安装包（兼容旧版清单）。
   ///
   /// 拆成静态方法便于单元测试，避免测试依赖网络。
   static UpdateInfo parseManifest(
@@ -199,6 +210,7 @@ class UpdateChecker {
     required String currentVersion,
     required String currentBuildNumber,
     required String platform,
+    String? abi,
   }) {
     final schema = _asInt(data['schema']);
     if (schema != null && schema != 1) {
@@ -219,10 +231,19 @@ class UpdateChecker {
       entry = data;
     }
 
+    // Android 优先使用与当前 ABI 匹配的拆分安装包；缺失或字段不完整时
+    // 回退到顶层通用条目，保证旧版清单与新客户端可以任意顺序上线。
+    final abiArtifact = _selectAbiArtifact(entry, platform: platform, abi: abi);
+    final artifact = abiArtifact ?? entry;
+
     final latestVersion = _cleanVersion(
-      _asString(entry?['version']) ?? data['version'] ?? data['tag_name'],
+      _asString(artifact?['version']) ??
+          _asString(entry?['version']) ??
+          data['version'] ??
+          data['tag_name'],
     );
-    final latestBuild = _asInt(entry?['build'] ?? data['build']) ?? 0;
+    final latestBuild =
+        _asInt(artifact?['build'] ?? entry?['build'] ?? data['build']) ?? 0;
     final current = _cleanVersion(currentVersion);
     final currentBuild = _asInt(currentBuildNumber) ?? 0;
 
@@ -247,12 +268,35 @@ class UpdateChecker {
       isUpdateAvailable: isUpdateAvailable,
       releaseUrl: releaseUrl,
       releaseNotes: releaseNotes,
-      downloadUrl: _asString(entry?['url']),
-      sha256: _asString(entry?['sha256'])?.toLowerCase(),
-      sizeBytes: _asInt(entry?['size']),
+      downloadUrl: _asString(artifact?['url']),
+      sha256: _asString(artifact?['sha256'])?.toLowerCase(),
+      sizeBytes: _asInt(artifact?['size']),
       latestBuild: latestBuild,
       platform: platform,
+      abi: abiArtifact == null ? null : abi,
     );
+  }
+
+  /// 从 `platforms.android.abis.<abi>` 中取出可用的安装包信息。
+  ///
+  /// 只有同时提供 `url` 与 `sha256` 才算可用：应用内更新必须先校验再安装，
+  /// 字段缺失时回退到通用条目，而不是把用户引向无法校验的下载。
+  static Map<String, dynamic>? _selectAbiArtifact(
+    Map<String, dynamic>? entry, {
+    required String platform,
+    required String? abi,
+  }) {
+    if (entry == null || platform != 'android' || abi == null) return null;
+    final rawAbis = entry['abis'];
+    if (rawAbis is! Map) return null;
+    final raw = rawAbis[abi];
+    if (raw is! Map) return null;
+    final artifact = Map<String, dynamic>.from(raw);
+    if (_asString(artifact['url']) == null ||
+        _asString(artifact['sha256']) == null) {
+      return null;
+    }
+    return artifact;
   }
 
   /// 比较两个「主.次.修订」版本号；a > b 返回正数，相等返回 0，否则返回负数。

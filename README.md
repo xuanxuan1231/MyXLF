@@ -82,7 +82,8 @@ Web 端的「保存到相册」会改为浏览器下载，「分享」优先使�
 1. 运行静态分析和单元测试（Android 任务）。
 2. 构建 Release APK、AAB、IPA，以及 Windows ZIP、macOS APP ZIP 和 Linux TAR.GZ。
 3. 生成更新清单并创建 GitHub Release（版本名取自标签去掉开头的 `v`），Release Notes 由 [git-cliff](https://git-cliff.org/) 根据提交历史生成，并附加以下文件：
-   - `MyXLF-<version>.apk`：可直接安装的通用 APK
+   - `MyXLF-<version>-arm64-v8a.apk`、`MyXLF-<version>-armeabi-v7a.apk`、`MyXLF-<version>-x86_64.apk`：按 ABI 拆分的安装包（应用内更新优先使用，约 26MB）
+   - `MyXLF-<version>.apk`：可直接安装的通用 APK（过渡期兼容旧客户端）
    - `MyXLF-<version>.aab`：用于 Google Play 上架
    - `MyXLF-<version>.ipa`：已签名的 iOS 安装包（配置 iOS 签名时）
    - `MyXLF-<version>-unsigned.ipa`：未签名 IPA（未配置 iOS 签名时），用户需自行重签侧载
@@ -91,7 +92,7 @@ Web 端的「保存到相册」会改为浏览器下载，「分享」优先使�
    - `MyXLF-<version>-linux-x64.tar.gz`：Linux x64 应用压缩包
    - `manifest.json`：多平台更新清单
    - `SHA256SUMS-<version>-{android,ios,windows,macos,linux}.txt`：校验文件
-4. Release 创建后，只把 Android APK 与更新清单上传到 Cloudflare R2；其他平台产物继续由 GitHub Release 托管。
+4. Release 创建后，只把 Android APK（通用包 + 按 ABI 拆分包）与更新清单上传到 Cloudflare R2；其他平台产物继续由 GitHub Release 托管。
 
 也可以进入 **Actions → Release → Run workflow** 手动触发；版本号留空时使用 `pubspec.yaml` 中的版本。手动触发时可设置：
 

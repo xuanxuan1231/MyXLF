@@ -72,6 +72,11 @@ env:
   R2_BUCKET: myxlf
   R2_PUBLIC_BASE_URL: https://myxlf.helloswx.top
 
+  # 过渡期开关：额外构建通用 APK，供不认识 `abis` 的旧客户端和 GitHub
+  # Release 页面使用。等旧版本用户基本升级完成后改为 'false'，即可只发布
+  # 按 ABI 拆分的安装包。
+  ANDROID_UNIVERSAL_APK: 'true'
+
 jobs:
   prepare:
     name: 解析版本
@@ -171,7 +176,8 @@ jobs:
         if: env.ANDROID_KEYSTORE_BASE64 == ''
         run: echo "::warning::未配置 Android 签名密钥，本次 Release 将使用 debug 签名。请配置 ANDROID_KEYSTORE_BASE64、ANDROID_KEYSTORE_PASSWORD、ANDROID_KEY_ALIAS、ANDROID_KEY_PASSWORD。"
 
-      - name: 构建 APK
+      - name: 构建通用 APK（兼容旧客户端）
+        if: env.ANDROID_UNIVERSAL_APK == 'true'
         env:
           MANIFEST_URL: ${{ needs.prepare.outputs.manifest_url }}
         run: |
@@ -181,6 +187,20 @@ jobs:
             dart_define="--dart-define=XLF_UPDATE_MANIFEST_URL=$MANIFEST_URL"
           fi
           flutter build apk --release \
+            --build-name="$APP_VERSION" \
+            --build-number="$GITHUB_RUN_NUMBER" \
+            $dart_define
+
+      - name: 构建 APK（按 ABI 拆分）
+        env:
+          MANIFEST_URL: ${{ needs.prepare.outputs.manifest_url }}
+        run: |
+          set -euo pipefail
+          dart_define=""
+          if [ -n "${MANIFEST_URL:-}" ]; then
+            dart_define="--dart-define=XLF_UPDATE_MANIFEST_URL=$MANIFEST_URL"
+          fi
+          flutter build apk --release --split-per-abi \
             --build-name="$APP_VERSION" \
             --build-number="$GITHUB_RUN_NUMBER" \
             $dart_define
@@ -203,11 +223,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk "dist/MyXLF-${APP_VERSION}.apk"
+          apk_dir=build/app/outputs/flutter-apk
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            src="$apk_dir/app-${abi}-release.apk"
+            if [ -f "$src" ]; then
+              cp "$src" "dist/MyXLF-${APP_VERSION}-${abi}.apk"
+            fi
+          done
+          if [ -f "$apk_dir/app-release.apk" ]; then
+            cp "$apk_dir/app-release.apk" "dist/MyXLF-${APP_VERSION}.apk"
+          fi
           cp build/app/outputs/bundle/release/app-release.aab "dist/MyXLF-${APP_VERSION}.aab"
+          apks=(dist/MyXLF-"${APP_VERSION}"*.apk)
+          if [ ! -e "${apks[0]}" ]; then
+            echo "::error::没有找到任何 Android APK 产物"
+            exit 1
+          fi
           (
             cd dist
-            sha256sum "MyXLF-${APP_VERSION}.apk" "MyXLF-${APP_VERSION}.aab" \
+            sha256sum MyXLF-"${APP_VERSION}"*.apk MyXLF-"${APP_VERSION}".aab \
               > "SHA256SUMS-${APP_VERSION}-android.txt"
           )
           ls -lh dist
@@ -695,17 +729,23 @@ jobs:
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: |
           set -euo pipefail
-          apk="dist/MyXLF-${APP_VERSION}.apk"
           object_dir="releases/v${APP_VERSION}/${APP_REVISION}"
 
-          # 只上传 Android APK；IPA / 桌面压缩包继续由 GitHub Release 托管。
-          if [ -f "$apk" ]; then
+          # 只上传 Android APK（通用包 + 按 ABI 拆分）；IPA / 桌面压缩包继续
+          # 由 GitHub Release 托管。
+          uploaded=0
+          for apk in dist/MyXLF-"${APP_VERSION}"*.apk; do
+            if [ ! -f "$apk" ]; then
+              continue
+            fi
             aws s3 cp "$apk" "s3://${R2_BUCKET}/${object_dir}/$(basename "$apk")" \
               --endpoint-url "$R2_ENDPOINT" \
               --region auto \
               --content-type "application/vnd.android.package-archive" \
               --cache-control "public, max-age=31536000, immutable"
-          else
+            uploaded=$((uploaded + 1))
+          done
+          if [ "$uploaded" -eq 0 ]; then
             echo "::warning::本次没有 Android APK，跳过 APK 上传"
           fi
 
