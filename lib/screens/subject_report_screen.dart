@@ -152,8 +152,11 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
       // 题型 / 知识点 / 能力属于成绩概况，放在左栏并默认折叠，
       // 避免长文本把成绩概况挤到屏幕外。
       if (report.typeInsightComment != null ||
+          report.typeChartUrl != null ||
           report.hasKnowledgeInsight ||
-          report.hasAbilityInsight)
+          report.knowledgeChartUrl != null ||
+          report.hasAbilityInsight ||
+          report.abilityChartUrl != null)
         ReportInsightsCard(
           typeComment: report.typeInsightComment,
           knowledgeStrengths: report.knowledgeStrengths,
@@ -162,6 +165,9 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
           abilityStrengths: report.abilityStrengths,
           abilityWeaknesses: report.abilityWeaknesses,
           abilityComment: report.abilityComment,
+          typeChartUrl: report.typeChartUrl,
+          knowledgeChartUrl: report.knowledgeChartUrl,
+          abilityChartUrl: report.abilityChartUrl,
         ),
     ];
     final rightSections = <Widget>[

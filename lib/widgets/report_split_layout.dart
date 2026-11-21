@@ -39,9 +39,12 @@ class ReportSplitLayout extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final twoPane = constraints.maxWidth >= AppBreakpoints.twoPane;
-        return twoPane
-            ? _buildTwoPane(constraints.maxWidth)
-            : _buildSinglePane(constraints.maxWidth);
+        return ReportPaneScope(
+          twoPane: twoPane,
+          child: twoPane
+              ? _buildTwoPane(constraints.maxWidth)
+              : _buildSinglePane(constraints.maxWidth),
+        );
       },
     );
   }
@@ -117,4 +120,29 @@ class ReportSplitLayout extends StatelessWidget {
       ],
     );
   }
+}
+
+/// 把当前的单栏 / 双栏状态传给栏内组件。
+///
+/// 例如学科分析里的「掌握情况」在双栏时就地展开，单栏时改用对话框，
+/// 避免在需要整页滚动的窄屏上再撑出一大段内容。
+class ReportPaneScope extends InheritedWidget {
+  const ReportPaneScope({
+    super.key,
+    required this.twoPane,
+    required super.child,
+  });
+
+  /// 当前是否为双栏布局。
+  final bool twoPane;
+
+  /// 读取当前布局；没有 [ReportPaneScope] 时默认按双栏的就地展开处理。
+  static bool isTwoPaneOf(BuildContext context) {
+    final scope = context.dependOnInheritedWidgetOfExactType<ReportPaneScope>();
+    return scope?.twoPane ?? true;
+  }
+
+  @override
+  bool updateShouldNotify(ReportPaneScope oldWidget) =>
+      oldWidget.twoPane != twoPane;
 }

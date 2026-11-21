@@ -452,12 +452,28 @@ class Parsers {
       _masterySpan(doc, const ['考查的学科能力', '学科能力的分析', '如下能力']),
     );
 
-    // ---- 图表（预留入口） ----
+    // ---- 图表（按平台 usemap 归类，供对应板块与文字排在一起） ----
+    String? typeChartUrl;
+    String? knowledgeChartUrl;
+    String? abilityChartUrl;
     final chartImages = <String>[];
     for (final img in doc.querySelectorAll('img')) {
       final src = img.attributes['src'] ?? '';
-      if (src.contains('static_report') || src.contains('/image/char')) {
-        chartImages.add(_absUrl(src));
+      if (!src.contains('static_report') && !src.contains('/image/char')) {
+        continue;
+      }
+      final url = _absUrl(src);
+      // 平台用 usemap 区分图表：#ttiip 题型、#tkiip 知识点、#taiip 能力，
+      // #tiip / #siip 是得失分与逐题得分率图表，仍留在「平台图表」中。
+      final usemap = (img.attributes['usemap'] ?? '').toLowerCase();
+      if (usemap.endsWith('ttiip')) {
+        typeChartUrl ??= url;
+      } else if (usemap.endsWith('tkiip')) {
+        knowledgeChartUrl ??= url;
+      } else if (usemap.endsWith('taiip')) {
+        abilityChartUrl ??= url;
+      } else {
+        chartImages.add(url);
       }
     }
 
@@ -479,6 +495,9 @@ class Parsers {
       abilityStrengths: ability.strengths,
       abilityWeaknesses: ability.weaknesses,
       abilityComment: ability.comment,
+      typeChartUrl: typeChartUrl,
+      knowledgeChartUrl: knowledgeChartUrl,
+      abilityChartUrl: abilityChartUrl,
       chartImages: chartImages,
       answerSheet: parseAnswerSheetForm(html),
     );

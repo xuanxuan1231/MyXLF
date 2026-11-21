@@ -825,6 +825,9 @@ class SubjectReport {
     this.abilityStrengths = const [],
     this.abilityWeaknesses = const [],
     this.abilityComment,
+    this.typeChartUrl,
+    this.knowledgeChartUrl,
+    this.abilityChartUrl,
     this.chartImages = const [],
     this.answerSheet,
   });
@@ -871,6 +874,15 @@ class SubjectReport {
   /// 学科能力水平说明（没有逐项列表时展示）。
   final String? abilityComment;
 
+  /// 题型掌握对应的平台图表（平台把它与说明文字排在同一行）。
+  final String? typeChartUrl;
+
+  /// 知识点掌握对应的平台图表。
+  final String? knowledgeChartUrl;
+
+  /// 学科能力水平对应的平台图表。
+  final String? abilityChartUrl;
+
   /// 题型掌握统一入口：优先使用「你能很好地掌握……」评语，
   /// 没有时回退到「各题型得分情况与年级基本持平」。
   String? get typeInsightComment {
@@ -880,7 +892,7 @@ class SubjectReport {
     return comment.isEmpty ? null : comment;
   }
 
-  /// 图表图片地址（预留入口）。
+  /// 图表图片地址（未归类到具体板块的其余平台图表）。
   final List<String> chartImages;
 
   /// 答卷表单字段（用于查看答题卡原图）。
