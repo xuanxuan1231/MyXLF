@@ -20,6 +20,15 @@ class ReportSplitLayout extends StatelessWidget {
     this.maxWidth = AppLayout.twoPaneMaxWidth,
   });
 
+  /// 宽屏左栏滚动视图的 key。
+  static const Key leftScrollKey = Key('report-left-scroll');
+
+  /// 宽屏右栏滚动视图的 key，便于测试定位这条独立的滚动条。
+  static const Key rightScrollKey = Key('report-right-scroll');
+
+  /// 单栏布局整页滚动视图的 key。
+  static const Key singleScrollKey = Key('report-single-scroll');
+
   /// 左栏内容（宽屏时固定）。
   final List<Widget> leftSections;
 
@@ -43,33 +52,53 @@ class ReportSplitLayout extends StatelessWidget {
           twoPane: twoPane,
           child: twoPane
               ? _buildTwoPane(constraints.maxWidth)
-              : _buildSinglePane(constraints.maxWidth),
+              : _buildSinglePane(context, constraints.maxWidth),
         );
       },
     );
   }
 
-  Widget _buildSinglePane(double width) {
+  Widget _buildSinglePane(BuildContext context, double width) {
+    final padding = centeredPadding(
+      width,
+      maxWidth: AppLayout.contentMaxWidth,
+      padding: const EdgeInsets.all(16),
+    );
+    final children = <Widget>[
+      for (var i = 0; i < leftSections.length; i++) ...[
+        if (i > 0) const SizedBox(height: 20),
+        leftSections[i],
+      ],
+      for (final section in rightSections) ...[
+        const SizedBox(height: 20),
+        section,
+      ],
+    ];
+
     return AppPullToRefresh(
       onRefresh: onRefresh,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: centeredPadding(
-          width,
-          maxWidth: AppLayout.contentMaxWidth,
-          padding: const EdgeInsets.all(16),
-        ),
-        children: [
-          for (var i = 0; i < leftSections.length; i++) ...[
-            if (i > 0) const SizedBox(height: 20),
-            leftSections[i],
-          ],
-          for (final section in rightSections) ...[
-            const SizedBox(height: 20),
-            section,
-          ],
-        ],
-      ),
+      // 桌面端同样不能交给 ListView 懒加载：逐题列表是一段很高的内容，
+      // ListView 只构建到它时会用已构建段落的平均高度估算剩余高度，
+      // 滚到列表末尾才拿到真实总高度，右侧滚动条会在进出逐题列表时
+      // 跳变。这里一次性布局整页，滚动范围从一开始就是精确的。
+      // 移动端没有可见滚动条，继续用 ListView 懒加载，避免刚打开报告
+      // 就把平台图表等靠下的内容全部构建、下载。
+      child: context.isDesktopPlatform
+          ? SingleChildScrollView(
+              key: singleScrollKey,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: padding,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: children,
+              ),
+            )
+          : ListView(
+              key: singleScrollKey,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: padding,
+              children: children,
+            ),
     );
   }
 
@@ -89,6 +118,7 @@ class ReportSplitLayout extends StatelessWidget {
           width: leftWidth,
           // 左栏独立滚动：右栏滚动时左栏保持固定，左栏内容过长时也能单独滚动。
           child: SingleChildScrollView(
+            key: leftScrollKey,
             primary: false,
             padding: const EdgeInsets.fromLTRB(16, 16, 12, 24),
             child: Column(
@@ -105,15 +135,26 @@ class ReportSplitLayout extends StatelessWidget {
         Expanded(
           child: AppPullToRefresh(
             onRefresh: onRefresh,
-            child: ListView(
+            // 右栏不要用 ListView 懒加载：逐题列表是一个很高的段落，ListView
+            // 只构建到它时会按已构建子项的平均高度估算剩余内容，等滚到列表
+            // 末尾（后一个段落进入构建范围）才拿到真实总高度，滚动条的长度
+            // 和位置就会在进出逐题列表时突然跳变。右栏段落数量固定，逐题列表
+            // 本身也是一次性构建，直接用 SingleChildScrollView 一次算出精确
+            // 的滚动范围。
+            child: SingleChildScrollView(
+              key: rightScrollKey,
+              primary: false,
               physics: const AlwaysScrollableScrollPhysics(),
               padding: EdgeInsets.fromLTRB(12, 16, 16 + extra, 24),
-              children: [
-                for (var i = 0; i < rightSections.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 20),
-                  rightSections[i],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < rightSections.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 20),
+                    rightSections[i],
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
