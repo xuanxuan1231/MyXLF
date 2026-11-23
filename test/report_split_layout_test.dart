@@ -38,7 +38,10 @@ void main() {
 
     final leftTopBefore = tester.getTopLeft(find.byKey(leftKey)).dy;
 
-    await tester.drag(find.byType(ListView), const Offset(0, -500));
+    await tester.drag(
+      find.byKey(ReportSplitLayout.rightScrollKey),
+      const Offset(0, -500),
+    );
     await tester.pumpAndSettle();
 
     expect(tester.getTopLeft(find.byKey(leftKey)).dy, leftTopBefore);
@@ -68,7 +71,7 @@ void main() {
     final rightTopBefore = tester.getTopLeft(find.byKey(rightKey)).dy;
 
     await tester.drag(
-      find.byType(SingleChildScrollView),
+      find.byKey(ReportSplitLayout.leftScrollKey),
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
@@ -112,7 +115,10 @@ void main() {
     expect(find.byType(NestedScrollView), findsNothing);
     final leftTopBefore = tester.getTopLeft(find.byKey(leftKey)).dy;
 
-    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.drag(
+      find.byKey(ReportSplitLayout.rightScrollKey),
+      const Offset(0, -600),
+    );
     await tester.pumpAndSettle();
 
     expect(tester.getTopLeft(find.byKey(leftKey)).dy, leftTopBefore);

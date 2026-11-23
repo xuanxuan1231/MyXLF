@@ -28,23 +28,30 @@ void main() {
     );
   }
 
-  testWidgets('三个板块有内容时默认折叠，只显示标题与数量提示', (tester) async {
-    await tester.pumpWidget(buildCard());
-    await tester.pumpAndSettle();
+  testWidgets('三个板块有内容时默认折叠，只显示胶囊标题', (tester) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await tester.pumpWidget(buildCard());
+      await tester.pumpAndSettle();
 
-    expect(find.text('题型掌握'), findsOneWidget);
-    expect(find.text('知识点掌握'), findsOneWidget);
-    expect(find.text('学科能力'), findsOneWidget);
+      expect(find.text('题型掌握'), findsOneWidget);
+      expect(find.text('知识点掌握'), findsOneWidget);
+      expect(find.text('学科能力'), findsOneWidget);
 
-    // 正文默认不可见。
-    expect(find.textContaining('填空题'), findsNothing);
-    expect(find.text('集合'), findsNothing);
-    expect(find.text('导数'), findsNothing);
-    expect(find.text('分析'), findsNothing);
-    expect(find.text('计算'), findsNothing);
+      // 正文默认不可见。
+      expect(find.textContaining('填空题'), findsNothing);
+      expect(find.text('集合'), findsNothing);
+      expect(find.text('导数'), findsNothing);
+      expect(find.text('分析'), findsNothing);
+      expect(find.text('计算'), findsNothing);
 
-    // 折叠时用数量提示信息量。
-    expect(find.text('1 项优势 · 1 项待加强'), findsNWidgets(2));
+      // 折叠态不占一行展示数量，信息量放在无障碍标签里。
+      expect(find.text('1 项优势 · 1 项待加强'), findsNothing);
+      expect(find.bySemanticsLabel('知识点掌握，1 项优势 · 1 项待加强'), findsOneWidget);
+      expect(find.bySemanticsLabel('学科能力，1 项优势 · 1 项待加强'), findsOneWidget);
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('点击标题后只展开对应板块', (tester) async {
@@ -85,24 +92,24 @@ void main() {
     expect(find.text('学科能力'), findsNothing);
   });
 
-  testWidgets('折叠入口为右侧圆形按钮，标题不带整块高亮背景', (tester) async {
+  testWidgets('点击胶囊标签展开对应板块，再次点击收起', (tester) async {
     await tester.pumpWidget(buildCard());
     await tester.pumpAndSettle();
 
+    expect(find.byTooltip('展开题型掌握'), findsOneWidget);
     expect(
       find.ancestor(of: find.text('题型掌握'), matching: find.byType(InkWell)),
-      findsNothing,
+      findsOneWidget,
     );
 
-    final button = tester.widget<IconButton>(find.byType(IconButton).first);
-    expect(button.tooltip, '展开');
-
-    await tester.tap(find.byType(IconButton).first);
+    await tester.tap(find.text('题型掌握'));
     await tester.pumpAndSettle();
     expect(find.textContaining('填空题'), findsOneWidget);
-    expect(
-      tester.widget<IconButton>(find.byType(IconButton).first).tooltip,
-      '收起',
-    );
+    expect(find.byTooltip('收起题型掌握'), findsOneWidget);
+
+    await tester.tap(find.text('题型掌握'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('填空题'), findsNothing);
+    expect(find.byTooltip('展开题型掌握'), findsOneWidget);
   });
 }
