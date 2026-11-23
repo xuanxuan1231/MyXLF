@@ -74,6 +74,11 @@ kotlin {
     }
 }
 
+dependencies {
+    // FileProvider：应用内更新把下载的 APK 以 content:// URI 交给系统安装程序。
+    implementation("androidx.core:core:1.15.0")
+}
+
 flutter {
     source = "../.."
 }

@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
+import 'device_abi.dart';
 
 /// 更新检查异常（携带面向用户的提示文案）。
 class UpdateCheckException implements Exception {
@@ -22,25 +24,52 @@ class UpdateInfo {
     required this.isUpdateAvailable,
     required this.releaseUrl,
     this.releaseNotes,
+    this.downloadUrl,
+    this.sha256,
+    this.sizeBytes,
+    this.latestBuild,
+    this.platform = '',
+    this.abi,
   });
 
   /// 当前应用版本号（如 1.0.0）。
   final String currentVersion;
 
-  /// GitHub 最新 Release 版本号（如 1.2.3）。
+  /// 清单中适用于当前平台的最新版本号（如 1.2.3）。
   final String latestVersion;
 
   /// 是否有可用的新版本。
   final bool isUpdateAvailable;
 
-  /// 最新版本 Release 页面地址。
+  /// 最新版本发布页地址（GitHub Release 等）。
   final String releaseUrl;
 
-  /// 更新说明（Release Notes）。
+  /// 更新说明（Markdown）。
   final String? releaseNotes;
+
+  /// 当前平台的安装包直链（Android 用于应用内下载安装）。
+  final String? downloadUrl;
+
+  /// 安装包 SHA-256（小写十六进制），用于下载后校验。
+  final String? sha256;
+
+  /// 安装包大小（字节）。
+  final int? sizeBytes;
+
+  /// 清单中的构建号（Android 对应 versionCode）。
+  final int? latestBuild;
+
+  /// 当前运行平台在清单中的键（android / ios / windows / macos / linux / web）。
+  final String platform;
+
+  /// 本次选中的 Android ABI（如 `arm64-v8a`）；非 Android 或使用通用包时为 null。
+  final String? abi;
 }
 
-/// 更新检查服务：查询 GitHub 最新 Release 并与当前版本比较。
+/// 更新检查服务：读取 Cloudflare R2 上的更新清单并与当前版本比较。
+///
+/// 清单格式见 `docs/updates.md`。发布工作流会把所有平台产物与
+/// `manifest.json` 一起上传到 R2，客户端不再调用 GitHub API。
 class UpdateChecker {
   UpdateChecker._();
 
@@ -49,12 +78,12 @@ class UpdateChecker {
   /// 「启动时自动检查更新」开关（SharedPreferences 键）。
   static const String autoCheckPreferenceKey = 'update_auto_check';
 
-  /// 独立 Dio 实例：请求 GitHub 公开 API，不继承登录会话与自签名证书配置。
+  /// 独立 Dio 实例：请求公开清单，不继承登录会话与自签名证书配置。
   final Dio _dio = Dio(
     BaseOptions(
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
-      headers: const {'Accept': 'application/vnd.github+json'},
+      headers: const {'Accept': 'application/json'},
     ),
   );
 
@@ -62,6 +91,31 @@ class UpdateChecker {
   Future<String> currentVersion() async {
     final info = await PackageInfo.fromPlatform();
     return info.version;
+  }
+
+  /// 当前应用构建号（Android 为 versionCode）。
+  Future<String> currentBuildNumber() async {
+    final info = await PackageInfo.fromPlatform();
+    return info.buildNumber;
+  }
+
+  /// 当前平台在清单中的键；不受支持的平台返回空字符串。
+  static String platformKey() {
+    if (kIsWeb) return 'web';
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return 'android';
+      case TargetPlatform.iOS:
+        return 'ios';
+      case TargetPlatform.windows:
+        return 'windows';
+      case TargetPlatform.macOS:
+        return 'macos';
+      case TargetPlatform.linux:
+        return 'linux';
+      case TargetPlatform.fuchsia:
+        return '';
+    }
   }
 
   /// 启动时是否自动检查更新；从未设置过时默认开启。
@@ -97,52 +151,152 @@ class UpdateChecker {
     }
   }
 
-  /// 检查 GitHub 最新稳定 Release。
-  ///
-  /// GitHub 的 `/releases/latest` 会跳过预发布（prerelease）与草稿（draft），
-  /// 因此无需额外过滤。仓库尚无任何 Release 时抛出 [UpdateCheckException]。
+  /// 读取更新清单并判断是否有新版本。
   Future<UpdateInfo> check() async {
     final current = await currentVersion();
+    final currentBuild = await currentBuildNumber();
+    final platform = platformKey();
+    // 只有 Android 会按 ABI 选择安装包；其他平台传 null 走通用条目。
+    final abi = platform == 'android' ? currentAndroidAbi() : null;
+
+    final manifestUri = Uri.tryParse(kUpdateManifestUrl);
+    if (manifestUri == null ||
+        manifestUri.host.isEmpty ||
+        manifestUri.scheme != 'https') {
+      throw UpdateCheckException('更新服务地址配置错误，请升级客户端');
+    }
 
     final Response<dynamic> resp;
     try {
       resp = await _dio.get<dynamic>(
-        'https://api.github.com/repos/$kGithubOwner/$kGithubRepo/releases/latest',
+        kUpdateManifestUrl,
+        // 清单文件名固定，用时间戳绕过 CDN 的短缓存，确保刚发布的版本可见。
+        queryParameters: {'_': DateTime.now().millisecondsSinceEpoch},
+        // 不额外添加请求头，避免 Web 端触发 CORS 预检；时间戳已能绕过缓存。
+        options: Options(responseType: ResponseType.json),
       );
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       if (status == 404) {
         throw UpdateCheckException('暂无可用的发布版本');
       }
-      if (status == 403) {
+      if (status == 403 || status == 429) {
         throw UpdateCheckException('检查过于频繁，请稍后再试');
       }
       throw UpdateCheckException('网络连接失败，请检查网络后重试');
     }
 
     final data = resp.data;
-    if (data is! Map<String, dynamic>) {
+    if (data is! Map) {
       throw UpdateCheckException('更新信息格式异常，请稍后重试');
     }
+    return parseManifest(
+      Map<String, dynamic>.from(data),
+      currentVersion: current,
+      currentBuildNumber: currentBuild,
+      platform: platform,
+      abi: abi,
+    );
+  }
 
-    final tag = (data['tag_name'] as String? ?? '')
-        .replaceFirst(RegExp(r'^[vV]'), '')
-        .split('+')
-        .first
-        .trim();
-    if (tag.isEmpty) {
-      throw UpdateCheckException('暂无可用的发布版本');
+  /// 解析清单并生成 [UpdateInfo]。
+  ///
+  /// [abi] 为当前 Android 进程的 ABI；清单里存在对应拆分安装包时优先使用，
+  /// 否则回退到 `platforms.android` 顶层的通用安装包（兼容旧版清单）。
+  ///
+  /// 拆成静态方法便于单元测试，避免测试依赖网络。
+  static UpdateInfo parseManifest(
+    Map<String, dynamic> data, {
+    required String currentVersion,
+    required String currentBuildNumber,
+    required String platform,
+    String? abi,
+  }) {
+    final schema = _asInt(data['schema']);
+    if (schema != null && schema != 1) {
+      throw UpdateCheckException('更新清单版本不受支持，请升级客户端');
     }
 
-    final releaseUrl = (data['html_url'] as String?) ?? kGithubUrl;
+    final releaseUrl = _asString(data['release_url']) ?? kGithubUrl;
+    final releaseNotes =
+        _asString(data['release_notes']) ?? _asString(data['notes']);
+
+    final rawPlatforms = data['platforms'];
+    Map<String, dynamic>? entry;
+    if (rawPlatforms is Map) {
+      final raw = rawPlatforms[platform];
+      if (raw is Map) entry = Map<String, dynamic>.from(raw);
+    } else {
+      // 兼容只包含一个平台信息的简单清单。
+      entry = data;
+    }
+
+    // Android 优先使用与当前 ABI 匹配的拆分安装包；缺失或字段不完整时
+    // 回退到顶层通用条目，保证旧版清单与新客户端可以任意顺序上线。
+    final abiArtifact = _selectAbiArtifact(entry, platform: platform, abi: abi);
+    final artifact = abiArtifact ?? entry;
+
+    final latestVersion = _cleanVersion(
+      _asString(artifact?['version']) ??
+          _asString(entry?['version']) ??
+          data['version'] ??
+          data['tag_name'],
+    );
+    final latestBuild =
+        _asInt(artifact?['build'] ?? entry?['build'] ?? data['build']) ?? 0;
+    final current = _cleanVersion(currentVersion);
+    final currentBuild = _asInt(currentBuildNumber) ?? 0;
+
+    // 清单里没有当前平台（例如尚未构建该平台）时不提示更新。
+    final hasEntry = entry != null;
+    if (hasEntry && latestVersion.isEmpty) {
+      throw UpdateCheckException('更新信息缺少版本号，请稍后重试');
+    }
+
+    final versionCompare = compareVersions(latestVersion, current);
+    final isUpdateAvailable =
+        hasEntry &&
+        (versionCompare > 0 ||
+            (versionCompare == 0 &&
+                latestBuild > 0 &&
+                currentBuild > 0 &&
+                latestBuild > currentBuild));
 
     return UpdateInfo(
       currentVersion: current,
-      latestVersion: tag,
-      isUpdateAvailable: compareVersions(tag, current) > 0,
+      latestVersion: latestVersion.isEmpty ? current : latestVersion,
+      isUpdateAvailable: isUpdateAvailable,
       releaseUrl: releaseUrl,
-      releaseNotes: data['body'] as String?,
+      releaseNotes: releaseNotes,
+      downloadUrl: _asString(artifact?['url']),
+      sha256: _asString(artifact?['sha256'])?.toLowerCase(),
+      sizeBytes: _asInt(artifact?['size']),
+      latestBuild: latestBuild,
+      platform: platform,
+      abi: abiArtifact == null ? null : abi,
     );
+  }
+
+  /// 从 `platforms.android.abis.<abi>` 中取出可用的安装包信息。
+  ///
+  /// 只有同时提供 `url` 与 `sha256` 才算可用：应用内更新必须先校验再安装，
+  /// 字段缺失时回退到通用条目，而不是把用户引向无法校验的下载。
+  static Map<String, dynamic>? _selectAbiArtifact(
+    Map<String, dynamic>? entry, {
+    required String platform,
+    required String? abi,
+  }) {
+    if (entry == null || platform != 'android' || abi == null) return null;
+    final rawAbis = entry['abis'];
+    if (rawAbis is! Map) return null;
+    final raw = rawAbis[abi];
+    if (raw is! Map) return null;
+    final artifact = Map<String, dynamic>.from(raw);
+    if (_asString(artifact['url']) == null ||
+        _asString(artifact['sha256']) == null) {
+      return null;
+    }
+    return artifact;
   }
 
   /// 比较两个「主.次.修订」版本号；a > b 返回正数，相等返回 0，否则返回负数。
@@ -156,12 +310,36 @@ class UpdateChecker {
   }
 
   static List<int> _parse(String v) {
-    // 忽略预发布后缀，例如 1.1.0-beta.1 → 1.1.0。
-    final parts = v.split('-').first.split('.');
+    // 忽略预发布后缀与构建号，例如 1.1.0-beta.1 → 1.1.0，1.2.3+45 → 1.2.3。
+    final parts = v.split('-').first.split('+').first.split('.');
     return [
       int.tryParse(parts[0]) ?? 0,
       int.tryParse(parts.length > 1 ? parts[1] : '') ?? 0,
       int.tryParse(parts.length > 2 ? parts[2] : '') ?? 0,
     ];
+  }
+
+  static String _cleanVersion(Object? raw) {
+    if (raw == null) return '';
+    return raw
+        .toString()
+        .trim()
+        .replaceFirst(RegExp(r'^[vV]'), '')
+        .split('+')
+        .first
+        .trim();
+  }
+
+  static String? _asString(Object? value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
+  static int? _asInt(Object? value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString().trim());
   }
 }

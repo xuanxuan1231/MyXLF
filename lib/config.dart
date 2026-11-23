@@ -39,10 +39,20 @@ const String kSubjectReportUrl =
 /// 账户信息地址（读取用户名 / 学校 / 班级等基本信息）。
 const String kAccountInfoUrl = '$kBaseUrl/useradmin/ChangePasswordAction.a';
 
-/// GitHub 仓库（关于页展示与更新检查使用）。
+/// GitHub 仓库（关于页展示）。
 const String kGithubOwner = 'xuanxuan1231';
 const String kGithubRepo = 'MyXLF';
 const String kGithubUrl = 'https://github.com/$kGithubOwner/$kGithubRepo';
+
+/// 更新清单地址（Cloudflare R2 上的 `manifest.json`）。
+///
+/// 发布工作流会把 APK / 桌面安装包与清单一起上传到 R2。客户端只读取这个
+/// 清单，不再调用 GitHub API；更换下载域名或使用自建镜像时，可在构建时覆盖：
+/// `flutter build apk --dart-define=XLF_UPDATE_MANIFEST_URL=https://example.com/manifest.json`
+const String kUpdateManifestUrl = String.fromEnvironment(
+  'XLF_UPDATE_MANIFEST_URL',
+  defaultValue: 'https://myxlf.helloswx.top/manifest.json',
+);
 
 /// PostHog 遥测项目 API key（项目 token，可公开分发的客户端 key）。
 ///

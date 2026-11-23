@@ -12,9 +12,11 @@ import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/chart_image.dart';
 import '../widgets/enhancement_notice.dart';
+import '../widgets/level_tag.dart';
 import '../widgets/offline_notice.dart';
 import '../widgets/report_page_scaffold.dart';
 import '../widgets/report_split_layout.dart';
+import '../widgets/score_level_badge.dart';
 import 'report_export_screen.dart';
 import 'subject_report_screen.dart';
 
@@ -163,10 +165,14 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     }
   }
 
-  void _openSubject(SubjectLink link) {
+  void _openSubject(TotalReport report, SubjectLink link) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SubjectReportScreen(link: link),
+        builder: (_) => SubjectReportScreen(
+          link: link,
+          level: report.subjectLevel(link.subjectName),
+          criticalLevel: report.subjectCriticalLevel(link.subjectName),
+        ),
         settings: const RouteSettings(name: 'Subject Report'),
       ),
     );
@@ -317,7 +323,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
         if (i <= noticeOffset) return;
         final subject = subjectRows[i - 1 - noticeOffset];
         final link = report.linkForSubject(subject.name);
-        if (link != null) _openSubject(link);
+        if (link != null) _openSubject(report, link);
       },
       itemBuilder: (_, i) {
         if (i == 0) return _buildHero(report);
@@ -356,7 +362,12 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
       subject.participated ? subject.score : null,
       subject.participated ? subject.fullScore : null,
       showChevron: link != null,
-      levelName: _subjectLevelName(report, subject.name) ?? link?.levelName,
+      // 平台入口参数里的层次在多科目考试中统一是总分层次，只有报告里
+      // 没有任何层次分组时才回退到它，避免给缺考 / 未分组科目标错层次。
+      levelName:
+          _subjectLevelName(report, subject.name) ??
+          (report.subjectLevels.isEmpty ? link?.levelName : null),
+      criticalLevel: report.subjectCriticalLevel(subject.name),
       maxScore: score.maxScores?.valueFor(subject.name),
       averageScore: score.averageScores?.valueFor(subject.name),
       classRank: score.classRanks?.valueFor(subject.name),
@@ -536,55 +547,16 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
                         ),
                       ),
                     ],
+                    if (report.totalCriticalLevel != null) ...[
+                      const SizedBox(height: 6),
+                      CriticalLevelHint(level: report.totalCriticalLevel!),
+                    ],
                   ],
                 ),
               ),
-              if (report.totalLevel != null) _levelBadge(report.totalLevel!),
+              if (report.totalLevel != null)
+                ScoreLevelBadge(level: report.totalLevel!),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _levelBadge(int level) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
-      decoration: BoxDecoration(
-        color: scheme.primaryContainer,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                '$level',
-                style: textTheme.headlineSmall?.copyWith(
-                  color: scheme.onPrimaryContainer,
-                  fontWeight: FontWeight.w800,
-                  height: 1,
-                ),
-              ),
-              Text(
-                ' 层次',
-                style: textTheme.labelMedium?.copyWith(
-                  color: scheme.onPrimaryContainer,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            '年级位置',
-            style: textTheme.labelSmall?.copyWith(
-              color: scheme.onPrimaryContainer,
-            ),
           ),
         ],
       ),
@@ -599,6 +571,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     bool showChevron = false,
     bool absent = false,
     String? levelName,
+    int? criticalLevel,
     double? maxScore,
     double? averageScore,
     double? classRank,
@@ -629,6 +602,13 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
                   children: [
                     Text(label, style: textTheme.titleSmall),
                     if (level != null) _subjectLevelTag(level),
+                    if (criticalLevel != null)
+                      _subjectToneTag(
+                        '$criticalLevel层次临界',
+                        scheme.primaryContainer,
+                        scheme.onPrimaryContainer,
+                        icon: Icons.trending_up,
+                      ),
                     if (absent)
                       _subjectToneTag(
                         '缺考',
@@ -676,21 +656,17 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     );
   }
 
-  Widget _subjectToneTag(String label, Color background, Color foreground) {
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: textTheme.labelSmall?.copyWith(
-          color: foreground,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+  Widget _subjectToneTag(
+    String label,
+    Color background,
+    Color foreground, {
+    IconData? icon,
+  }) {
+    return LevelTag(
+      label: label,
+      background: background,
+      foreground: foreground,
+      icon: icon,
     );
   }
 
@@ -713,20 +689,10 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
 
   Widget _subjectLevelTag(String label) {
     final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: scheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: textTheme.labelSmall?.copyWith(
-          color: scheme.onSecondaryContainer,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+    return LevelTag(
+      label: label,
+      background: scheme.secondaryContainer,
+      foreground: scheme.onSecondaryContainer,
     );
   }
 
@@ -804,12 +770,14 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
         (report.weakSubjects ?? '').isNotEmpty ||
         (report.balanceComment ?? '').isNotEmpty ||
         (report.weakSubjectComment ?? '').isNotEmpty ||
-        (report.rankText ?? '').isNotEmpty;
+        (report.rankText ?? '').isNotEmpty ||
+        report.subjectCriticalLevels.isNotEmpty;
   }
 
   bool _hasNotes(TotalReport report) {
     return (report.levelDescription ?? '').isNotEmpty ||
-        (report.rankDescription ?? '').isNotEmpty;
+        (report.rankDescription ?? '').isNotEmpty ||
+        (report.peerNote ?? '').isNotEmpty;
   }
 
   Widget _buildPerformance(TotalReport report) {
@@ -818,6 +786,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     final level = report.totalLevel;
     final advantage = _cleanValue(report.advantageSubjects);
     final weak = _cleanValue(report.weakSubjects);
+    final critical = report.subjectCriticalLevels;
     final comments = <Widget>[];
 
     final balance = _cleanComment(report.balanceComment);
@@ -880,6 +849,10 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
           _subjectGroup('优势科目', advantage, positive: true),
           const SizedBox(height: 14),
           _subjectGroup('弱势科目', weak, positive: false),
+          if (critical.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _criticalSubjectGroup(critical),
+          ],
           if (comments.isNotEmpty) ...[
             const SizedBox(height: 14),
             Divider(height: 1, color: scheme.outlineVariant),
@@ -959,6 +932,65 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     );
   }
 
+  /// 进入更高层次临界区的科目；与优势 / 弱势科目并列展示。
+  Widget _criticalSubjectGroup(Map<String, int> critical) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('临界科目', style: textTheme.titleSmall),
+            const SizedBox(width: 6),
+            Text(
+              '${critical.length} 门',
+              style: textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final entry in critical.entries)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.trending_up,
+                      size: 13,
+                      color: scheme.onPrimaryContainer,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${entry.key} · ${entry.value}层次临界',
+                      style: textTheme.labelLarge?.copyWith(
+                        color: scheme.onPrimaryContainer,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
   List<String> _splitSubjects(String? value) {
     if (value == null || value.isEmpty) return const [];
     return value
@@ -1028,8 +1060,11 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
   }
 
   void _showNotes(TotalReport report) {
-    final levelDescription = (report.levelDescription ?? '').trim();
-    final rankDescription = (report.rankDescription ?? '').trim();
+    final paragraphs = <String>[
+      (report.levelDescription ?? '').trim(),
+      (report.rankDescription ?? '').trim(),
+      (report.peerNote ?? '').trim(),
+    ].where((text) => text.isNotEmpty).toList();
     showDialog<void>(
       context: context,
       builder: (ctx) {
@@ -1041,17 +1076,15 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (levelDescription.isNotEmpty)
-                  Text(levelDescription, style: textTheme.bodyMedium),
-                if (levelDescription.isNotEmpty && rankDescription.isNotEmpty)
-                  const SizedBox(height: 12),
-                if (rankDescription.isNotEmpty)
+                for (var i = 0; i < paragraphs.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 12),
                   Text(
-                    rankDescription,
+                    paragraphs[i],
                     style: textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                      color: i == 0 ? null : scheme.onSurfaceVariant,
                     ),
                   ),
+                ],
               ],
             ),
           ),

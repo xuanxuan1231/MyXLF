@@ -64,6 +64,8 @@ dependencies:
   android_id: ^0.6.0
   # Web 端图片下载 / Web Share API（条件导入，仅 Web 构建引用）。
   web: ^1.1.1
+  # 应用内更新：下载 APK 后校验 SHA-256。
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:
