@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.0.1+1
+version: 0.0.1+36
 
 environment:
   sdk: ^3.9.2
@@ -90,14 +90,21 @@ flutter:
   uses-material-design: true
 
   # 应用图标（登录页浅色 / 深色两种版本）。
+  # Noto Sans SC 的 OFL 许可证随应用一起分发。
   assets:
     - assets/images/
+    - assets/fonts/NotoSansSC-OFL.txt
 
   # 自定义字体（Google Sans Flex 可变字体，用于 M3E Emphasized 排版）。
+  # 中文使用 Google 默认的 Noto Sans SC 可变字体（GBK 子集，约 2.1 万汉字），
+  # 随应用打包，避免回退到运行系统的默认字体。
   fonts:
     - family: GoogleSansFlex
       fonts:
         - asset: assets/fonts/GoogleSansFlex.ttf
+    - family: NotoSansSC
+      fonts:
+        - asset: assets/fonts/NotoSansSC.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

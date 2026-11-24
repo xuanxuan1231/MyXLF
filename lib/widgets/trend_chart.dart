@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
 
+import '../theme/app_theme.dart';
+
 /// 趋势图上的一个数据点。
 class TrendPoint {
   const TrendPoint({
@@ -88,7 +90,12 @@ class _TrendPainter extends CustomPainter {
     final gridPaint = Paint()
       ..color = gridColor
       ..strokeWidth = 0.6;
-    final labelStyle = TextStyle(fontSize: 9, color: labelColor);
+    final labelStyle = TextStyle(
+      fontSize: 9,
+      color: labelColor,
+      fontFamily: kPrimaryFontFamily,
+      fontFamilyFallback: kFontFamilyFallback,
+    );
 
     for (final fraction in const [0.0, 0.5, 1.0]) {
       final y = baseY - chartHeight * fraction;
