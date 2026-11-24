@@ -13,7 +13,11 @@ class TelemetryNotice extends StatelessWidget {
       children: [
         Text('我们会收集（全部匿名）', style: textTheme.titleSmall),
         const SizedBox(height: 8),
-        _bullet(context, Icons.fingerprint, '匿名设备 ID（Android 的 ANDROID_ID / iOS 的 IDFV），仅用于去重统计'),
+        _bullet(
+          context,
+          Icons.fingerprint,
+          '匿名设备 ID（Android 的 ANDROID_ID / iOS 的 IDFV），仅用于去重统计',
+        ),
         _bullet(context, Icons.devices_outlined, '设备平台与系统版本，例如 Android 14'),
         _bullet(context, Icons.system_update_alt, '应用版本与构建号，用于版本分布统计'),
         _bullet(context, Icons.insights_outlined, '页面浏览与功能使用情况，用于改进界面与功能'),

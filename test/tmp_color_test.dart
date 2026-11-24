@@ -6,6 +6,8 @@ void main() {
   test('colors', () {
     final s = M3EColorScheme.light(seedColor: const Color(0xFF2F6FED));
     // ignore: avoid_print
-    print('surface=${s.surface} container=${s.surfaceContainer} low=${s.surfaceContainerLow} high=${s.surfaceContainerHigh} tint=${s.surfaceTint}');
+    print(
+      'surface=${s.surface} container=${s.surfaceContainer} low=${s.surfaceContainerLow} high=${s.surfaceContainerHigh} tint=${s.surfaceTint}',
+    );
   });
 }

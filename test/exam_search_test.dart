@@ -44,9 +44,11 @@ void main() {
 
     test('日期支持多种日常写法', () {
       for (final keyword in ['10/9', '10.9', '10-9', '10月9日', '2026-10-09']) {
-        expect(filterExams(exams, keyword: keyword).map((e) => e.testId), [
-          '1001',
-        ], reason: '关键词「$keyword」应命中 2026/10/09 的考试');
+        expect(
+          filterExams(exams, keyword: keyword).map((e) => e.testId),
+          ['1001'],
+          reason: '关键词「$keyword」应命中 2026/10/09 的考试',
+        );
       }
     });
 

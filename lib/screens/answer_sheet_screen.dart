@@ -15,11 +15,7 @@ import 'image_viewer_screen.dart';
 
 /// 答卷（答题卡原图）浏览页。
 class AnswerSheetScreen extends StatefulWidget {
-  const AnswerSheetScreen({
-    super.key,
-    required this.title,
-    required this.form,
-  });
+  const AnswerSheetScreen({super.key, required this.title, required this.form});
 
   final String title;
   final AnswerSheetForm form;

@@ -75,7 +75,8 @@ class _XlfImageState extends State<XlfImage> {
       );
     }
 
-    final background = widget.backgroundColor ??
+    final background =
+        widget.backgroundColor ??
         Theme.of(context).colorScheme.surfaceContainerHighest;
     final placeholderHeight = widget.height ?? 160.0;
     return Container(
@@ -84,8 +85,10 @@ class _XlfImageState extends State<XlfImage> {
       color: background,
       child: Center(
         child: _error
-            ? Icon(Icons.broken_image_outlined,
-                color: Theme.of(context).colorScheme.onSurfaceVariant)
+            ? Icon(
+                Icons.broken_image_outlined,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              )
             : const SizedBox(
                 width: 20,
                 height: 20,

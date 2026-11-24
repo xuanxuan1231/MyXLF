@@ -17,9 +17,8 @@ class ImageActions {
     Uint8List bytes, {
     required String fileName,
   }) async {
-    final gallerySupported = Platform.isAndroid ||
-        Platform.isIOS ||
-        Platform.isMacOS;
+    final gallerySupported =
+        Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
 
     if (gallerySupported) {
       try {
@@ -72,7 +71,8 @@ class ImageActions {
     String fileName,
   ) async {
     final dir =
-        await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+        await getDownloadsDirectory() ??
+        await getApplicationDocumentsDirectory();
     final path = p.join(dir.path, '$fileName.${_extensionOf(bytes)}');
     await File(path).writeAsBytes(bytes, flush: true);
     return path;

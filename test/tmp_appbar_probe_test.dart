@@ -11,25 +11,27 @@ void main() {
     );
     var loading = false;
 
-    await tester.pumpWidget(MaterialApp(
-      theme: theme,
-      home: StatefulBuilder(
-        builder: (context, setState) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('成绩分析')),
-            body: loading
-                ? const Center(child: M3ECircularProgressIndicator())
-                : ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      for (var i = 0; i < 30; i++)
-                        SizedBox(height: 60, child: Text('item $i')),
-                    ],
-                  ),
-          );
-        },
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: theme,
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            return Scaffold(
+              appBar: AppBar(title: const Text('成绩分析')),
+              body: loading
+                  ? const Center(child: M3ECircularProgressIndicator())
+                  : ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        for (var i = 0; i < 30; i++)
+                          SizedBox(height: 60, child: Text('item $i')),
+                      ],
+                    ),
+            );
+          },
+        ),
       ),
-    ));
+    );
 
     // ignore: avoid_print
     print('initial appbar: ${_appBarColor(tester)}');
@@ -43,25 +45,27 @@ void main() {
     final state = tester.state<State>(find.byType(StatefulBuilder));
     // ignore: avoid_print
     print('state=$state');
-    await tester.pumpWidget(MaterialApp(
-      theme: theme,
-      home: StatefulBuilder(
-        builder: (context, setState) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('成绩分析')),
-            body: loading
-                ? const Center(child: M3ECircularProgressIndicator())
-                : ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      for (var i = 0; i < 30; i++)
-                        SizedBox(height: 60, child: Text('item $i')),
-                    ],
-                  ),
-          );
-        },
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: theme,
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            return Scaffold(
+              appBar: AppBar(title: const Text('成绩分析')),
+              body: loading
+                  ? const Center(child: M3ECircularProgressIndicator())
+                  : ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        for (var i = 0; i < 30; i++)
+                          SizedBox(height: 60, child: Text('item $i')),
+                      ],
+                    ),
+            );
+          },
+        ),
       ),
-    ));
+    );
     loading = true;
     await tester.pump();
     await tester.pump();

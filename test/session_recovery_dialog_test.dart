@@ -22,13 +22,10 @@ void main() {
   testWidgets('重新登录对话框：密码错误保留对话框，正确则关闭', (tester) async {
     await pumpApp(tester);
 
-    final future = XlfClient.instance.reauthPrompt!(
-      '张三',
-      (password) async {
-        if (password == 'ok') return const XlfReauthResult.success();
-        return const XlfReauthResult.retry('用户名或密码错误。');
-      },
-    );
+    final future = XlfClient.instance.reauthPrompt!('张三', (password) async {
+      if (password == 'ok') return const XlfReauthResult.success();
+      return const XlfReauthResult.retry('用户名或密码错误。');
+    });
     await tester.pumpAndSettle();
 
     expect(find.text('登录状态已失效'), findsOneWidget);
