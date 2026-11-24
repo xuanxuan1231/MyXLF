@@ -121,6 +121,11 @@ class TelemetryService {
     _debugTelemetryEnabled = true;
   }
 
+  /// 仅测试：观察所有 [capture] 调用（无论遥测是否开启），用于断言埋点。
+  @visibleForTesting
+  void Function(String eventName, Map<String, Object>? properties)?
+  debugCaptureSpy;
+
   /// 构建模式标签：debug / profile / release，作为事件属性 `app_env`。
   static String get envName {
     if (kDebugMode) return 'debug';
@@ -538,6 +543,7 @@ class TelemetryService {
     String eventName, {
     Map<String, Object>? properties,
   }) async {
+    debugCaptureSpy?.call(eventName, properties);
     if (!isEnabled) return false;
     try {
       await Posthog().capture(eventName: eventName, properties: properties);
@@ -678,6 +684,7 @@ class TelemetryService {
   @visibleForTesting
   void resetForTest() {
     _debugTelemetryEnabled = false;
+    debugCaptureSpy = null;
     _configured = false;
     _consent = false;
     _deviceId = '';

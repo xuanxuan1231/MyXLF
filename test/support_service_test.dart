@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,6 +13,7 @@ void main() {
 
   setUp(() {
     SupportService.instance.debugTokenOverride = '';
+    SupportService.instance.debugDioOverride = null;
     SharedPreferences.setMockInitialValues({});
     AppLog.instance.resetForTest();
     AppLog.instance.forwardToPostHog = false;
@@ -18,6 +22,7 @@ void main() {
 
   tearDown(() {
     SupportService.instance.debugTokenOverride = null;
+    SupportService.instance.debugDioOverride = null;
     AppLog.instance.resetForTest();
     TelemetryService.instance.resetForTest();
   });
@@ -135,40 +140,54 @@ void main() {
       );
     });
 
-    test('已开启遥测时允许新建工单（进入网络阶段）', () async {
+    test('已开启遥测时允许新建工单', () async {
       SupportService.instance.debugTokenOverride = 'test-token';
+      SupportService.instance.debugDioOverride = _fakeClient(
+        201,
+        body: '{"ticket_id": "t-1", "message_id": "m-1"}',
+      );
       TelemetryService.enableForTest();
       await TelemetryService.instance.setConsent(enabled: true);
       expect(TelemetryService.instance.isConsented, isTrue);
 
-      // 这里只验证前置校验放行；真实网络请求在测试环境不可用，
-      // 因此期望得到网络类错误，而不是「未开启」的输入错误。
-      await expectLater(
-        SupportService.instance.sendMessage(message: '报告打不开'),
-        throwsA(
-          isA<SupportException>().having(
-            (e) => e.kind,
-            'kind',
-            isNot(SupportErrorKind.invalidInput),
-          ),
-        ),
+      // 前置校验放行后走内存适配器，不发起真实网络请求。
+      final result = await SupportService.instance.sendMessage(
+        message: '报告打不开',
       );
+      expect(result.ticketId, 't-1');
+      expect(result.messageId, 'm-1');
     });
 
     test('已有工单回复不要求遥测', () async {
       SupportService.instance.debugTokenOverride = 'test-token';
+      SupportService.instance.debugDioOverride = _fakeClient(
+        201,
+        body: '{"ticket_id": "ticket-1", "message_id": "m-2"}',
+      );
+
+      final result = await SupportService.instance.sendMessage(
+        message: '补充说明',
+        ticketId: 'ticket-1',
+      );
+      expect(result.ticketId, 'ticket-1');
+    });
+  });
+
+  group('请求错误映射', () {
+    test('5xx 归类为服务端错误并保留服务端 detail', () async {
+      SupportService.instance.debugTokenOverride = 'test-token';
+      SupportService.instance.debugDioOverride = _fakeClient(
+        500,
+        body: '{"error": "internal error"}',
+      );
 
       await expectLater(
-        SupportService.instance.sendMessage(
-          message: '补充说明',
-          ticketId: 'ticket-1',
-        ),
+        SupportService.instance.listTickets(),
         throwsA(
-          isA<SupportException>().having(
-            (e) => e.kind,
-            'kind',
-            isNot(SupportErrorKind.invalidInput),
-          ),
+          isA<SupportException>()
+              .having((e) => e.kind, 'kind', SupportErrorKind.server)
+              .having((e) => e.statusCode, 'statusCode', 500)
+              .having((e) => e.message, 'message', contains('internal error')),
         ),
       );
     });
@@ -200,4 +219,39 @@ void main() {
       expect(diagnostics.sessionContext.containsKey('recent_logs'), isFalse);
     });
   });
+}
+
+/// 复用线上配置（含 `validateStatus`），只把传输层换成固定响应，
+/// 避免测试依赖真实网络与外部服务。
+Dio _fakeClient(int statusCode, {String body = '{}'}) {
+  return SupportService.instance.createClient()
+    ..httpClientAdapter = _FixedResponseAdapter(
+      statusCode: statusCode,
+      body: body,
+    );
+}
+
+class _FixedResponseAdapter implements HttpClientAdapter {
+  _FixedResponseAdapter({required this.statusCode, required this.body});
+
+  final int statusCode;
+  final String body;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    return ResponseBody.fromString(
+      body,
+      statusCode,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }

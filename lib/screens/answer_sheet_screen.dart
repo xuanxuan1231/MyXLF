@@ -7,6 +7,7 @@ import '../models/models.dart';
 import '../services/app_log.dart';
 import '../services/image_actions.dart';
 import '../services/image_store.dart';
+import '../services/log_sanitizer.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_pull_to_refresh.dart';
@@ -16,11 +17,7 @@ import 'image_viewer_screen.dart';
 
 /// 答卷（答题卡原图）浏览页。
 class AnswerSheetScreen extends StatefulWidget {
-  const AnswerSheetScreen({
-    super.key,
-    required this.title,
-    required this.form,
-  });
+  const AnswerSheetScreen({super.key, required this.title, required this.form});
 
   final String title;
   final AnswerSheetForm form;
@@ -50,10 +47,7 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
     });
     try {
       final urls = await XlfClient.instance.fetchAnswerSheetImages(widget.form);
-      AppLog.instance.info(
-        '已加载答卷图片',
-        attributes: {'pages': urls.length},
-      );
+      AppLog.instance.info('已加载答卷图片', attributes: {'pages': urls.length});
       if (!mounted) return;
       setState(() {
         _urls = urls;
@@ -62,7 +56,7 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
     } catch (e) {
       AppLog.instance.error(
         '答卷图片加载失败',
-        attributes: {'error': '$e'},
+        attributes: {'error': sanitizeExceptionText('$e')},
       );
       if (!mounted) return;
       setState(() {
@@ -111,7 +105,7 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
     } catch (e) {
       AppLog.instance.error(
         '答卷图片操作失败',
-        attributes: {'page': index + 1, 'error': '$e'},
+        attributes: {'page': index + 1, 'error': sanitizeExceptionText('$e')},
       );
       _showMessage('操作失败：$e');
     } finally {

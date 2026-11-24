@@ -93,6 +93,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       final result = await XlfClient.instance.login(
         account.username,
         account.password,
+        source: LoginSource.switchAccount,
       );
       final fresh = account.copyWith(
         schoolName: result.schoolName,

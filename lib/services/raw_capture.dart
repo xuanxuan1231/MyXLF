@@ -114,8 +114,8 @@ class RawCaptureStore extends ChangeNotifier {
 
   /// 记录一次快照。
   ///
-  /// 相同类型且内容完全相同的快照只保留最新一次（刷新 / 重试不会堆积）；
-  /// 内容变化时追加新条目。
+  /// 相同类型且内容完全相同的快照只保留最新一次（刷新 / 重试不会堆积），
+  /// 并且在原位置更新，不会因为再次抓取或导出而改变排序；内容变化时追加新条目。
   RawCapture add({
     required RawCaptureKind kind,
     required String title,
@@ -133,12 +133,18 @@ class RawCaptureStore extends ChangeNotifier {
       meta: Map<String, String>.unmodifiable(meta),
       fromCache: fromCache,
     );
-    _captures.removeWhere(
+    // 相同快照就地替换：既不会堆积重复条目，也不会让导出等操作
+    // 把已有条目挪到队尾、打乱顺序或提前被容量淘汰。
+    final index = _captures.indexWhere(
       (item) => item.kind == kind && item.body == capture.body,
     );
-    _captures.add(capture);
-    while (_captures.length > capacity) {
-      _captures.removeAt(0);
+    if (index >= 0) {
+      _captures[index] = capture;
+    } else {
+      _captures.add(capture);
+      while (_captures.length > capacity) {
+        _captures.removeAt(0);
+      }
     }
     notifyListeners();
     return capture;

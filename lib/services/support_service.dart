@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
 import 'app_log.dart';
+import 'log_sanitizer.dart';
 import 'telemetry.dart';
 import 'uuid.dart';
 
@@ -191,7 +192,24 @@ class SupportService {
 
   Dio? _dio;
 
-  Dio get _client => _dio ??= Dio(
+  /// 测试专用：替换底层 Dio（可挂内存适配器，避免真实网络请求）。
+  ///
+  /// 设为非空后 [debugDioOverride] 优先于内部实例，测试结束记得恢复 `null`。
+  @visibleForTesting
+  Dio? debugDioOverride;
+
+  Dio get _client {
+    final override = debugDioOverride;
+    if (override != null) return override;
+    return _dio ??= createClient();
+  }
+
+  /// 创建线上配置的客户端。
+  ///
+  /// 测试可用它拿到与线上完全一致的 [BaseOptions]（尤其是 `validateStatus`），
+  /// 再替换 [Dio.httpClientAdapter] 返回内存响应，从而不发起真实网络请求。
+  @visibleForTesting
+  Dio createClient() => Dio(
     BaseOptions(
       baseUrl: kPosthogHost,
       connectTimeout: const Duration(seconds: 20),
@@ -201,8 +219,9 @@ class SupportService {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },
-      // 4xx 需要读取服务端返回的错误信息，不交给 Dio 抛异常。
-      validateStatus: (status) => status != null && status < 500,
+      // 4xx / 5xx 都交给 _send 统一读取服务端返回的错误信息。
+      // 若在这里让 5xx 抛异常，会被当成网络错误，服务端的 detail 也会丢失。
+      validateStatus: (status) => status != null && status < 600,
     ),
   );
 
@@ -445,7 +464,10 @@ class SupportService {
         kind: SupportErrorKind.network,
       );
     } catch (e) {
-      AppLog.instance.error('工单请求异常：$operation', attributes: {'error': '$e'});
+      AppLog.instance.error(
+        '工单请求异常：$operation',
+        attributes: {'error': sanitizeExceptionText('$e')},
+      );
       throw SupportException(
         '$operation失败，请稍后重试',
         kind: SupportErrorKind.server,

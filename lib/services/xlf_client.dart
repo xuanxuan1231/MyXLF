@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
@@ -12,6 +13,7 @@ import 'aes_crypto.dart';
 import 'app_log.dart';
 import 'dio_platform.dart';
 import 'parsers.dart';
+import 'telemetry.dart';
 import 'xlf_exceptions.dart';
 
 export 'xlf_exceptions.dart';
@@ -43,6 +45,20 @@ typedef XlfReauthPrompt =
 /// 重新登录成功后保存新密码（由界面层注入）。
 typedef XlfCredentialsRefreshed =
     Future<void> Function(String username, String password);
+
+/// 登录来源，作为 `Login Succeeded` / `Login Failed` 事件属性 `source`，
+/// 用于区分用户主动登录与自动流程（装机 / 切换账号 / 会话恢复）。
+enum LoginSource {
+  manual('manual'),
+  auto('auto'),
+  switchAccount('switch_account'),
+  sessionRecovery('session_recovery');
+
+  const LoginSource(this.value);
+
+  /// 上报给 PostHog 的取值（snake_case，避免依赖枚举名）。
+  final String value;
+}
 
 /// MyXLF 客户端：负责登录、会话保持与页面抓取。
 class XlfClient {
@@ -256,7 +272,11 @@ class XlfClient {
     // 1. 先尝试保存的密码。密码已被拒绝过就不再重复尝试。
     if (!_credentialsRejected) {
       try {
-        await login(username, storedPassword);
+        await login(
+          username,
+          storedPassword,
+          source: LoginSource.sessionRecovery,
+        );
         AppLog.instance.info('会话已自动恢复');
         return null;
       } on XlfAccountLockedException catch (e) {
@@ -301,7 +321,8 @@ class XlfClient {
         return const XlfReauthResult.retry('请输入密码');
       }
       try {
-        await login(username, password);
+        // 用户在恢复对话框里重新输入密码：来源记为 manual。
+        await login(username, password, source: LoginSource.manual);
         await _persistRefreshedPassword(username, password);
         return const XlfReauthResult.success();
       } on XlfSessionExpiredException {
@@ -386,11 +407,17 @@ class XlfClient {
   ///
   /// 登录失败不会影响当前账号：切换账号被拒绝时，
   /// 原会话 Cookie 会被完整恢复，数据抓取继续可用。
-  Future<LoginResult> login(String username, String password) {
+  ///
+  /// [source] 只用于统计（事件属性），不影响登录行为。
+  Future<LoginResult> login(
+    String username,
+    String password, {
+    LoginSource source = LoginSource.manual,
+  }) {
     // 在入队时记录会话代数：排队期间若发生登出，本次登录必须作废。
     final generation = _sessionGeneration;
     final future = _loginQueue.then(
-      (_) => _doLogin(username, password, generation),
+      (_) => _doLogin(username, password, generation, source),
     );
     _loginQueue = future.then<void>((_) {}, onError: (_) {});
     return future;
@@ -400,6 +427,7 @@ class XlfClient {
     String username,
     String password,
     int generation,
+    LoginSource source,
   ) async {
     // 入队后已被登出：直接放弃，不触碰当前会话。
     if (generation != _sessionGeneration) {
@@ -408,11 +436,13 @@ class XlfClient {
     final startedAt = DateTime.now();
     AppLog.instance.debug('开始登录');
 
-    // 备份当前会话 Cookie；登录失败时回滚，避免把当前账号的会话一起毁掉。
-    final previousCookies = await _snapshotCookies();
-    await _clearCookies();
-
+    // 备份当前会话 Cookie 与清理会话都放在 try 内：它们本身失败时也要
+    // 留下「登录失败」日志，否则用户看不到原因、客服也无从排查。
+    List<Cookie>? previousCookies;
     try {
+      previousCookies = await _snapshotCookies();
+      await _clearCookies();
+
       // 1. 访问登录页，建立会话（拿到 JSESSIONID / DWRSESSIONID）。
       await _get('/login.jsp', loginRequest: true);
 
@@ -508,13 +538,26 @@ class XlfClient {
       _credentialsRejected = false;
       _loginEpoch++;
 
+      final durationMs = DateTime.now().difference(startedAt).inMilliseconds;
       AppLog.instance.info(
         '登录成功',
         attributes: {
-          'duration_ms': DateTime.now().difference(startedAt).inMilliseconds,
+          'duration_ms': durationMs,
           'has_school': schoolName.isNotEmpty,
           'has_class': className.isNotEmpty,
         },
+      );
+      // 日志留给工单排查，事件用于统计登录成功率与耗时；两者都保留。
+      unawaited(
+        TelemetryService.instance.capture(
+          'Login Succeeded',
+          properties: {
+            'source': source.value,
+            'duration_ms': durationMs,
+            'has_school': schoolName.isNotEmpty,
+            'has_class': className.isNotEmpty,
+          },
+        ),
       );
 
       return LoginResult(
@@ -527,6 +570,7 @@ class XlfClient {
     } catch (e) {
       // 登录失败：回滚会话 Cookie，当前账号不受影响。
       // 若期间已登出，则不能回滚（那会把刚清掉的会话又恢复出来）。
+      final durationMs = DateTime.now().difference(startedAt).inMilliseconds;
       AppLog.instance.log(
         e is XlfAuthException || e is XlfAccountLockedException
             ? AppLogLevel.warn
@@ -534,11 +578,26 @@ class XlfClient {
         '登录失败',
         attributes: {
           'type': e.runtimeType.toString(),
-          'duration_ms': DateTime.now().difference(startedAt).inMilliseconds,
+          'duration_ms': durationMs,
         },
       );
-      if (generation == _sessionGeneration) {
-        await _restoreCookies(previousCookies);
+      // 登出导致的作废不是真正的失败：只留在本机日志，不污染登录失败率。
+      if (e is! XlfSessionExpiredException) {
+        unawaited(
+          TelemetryService.instance.capture(
+            'Login Failed',
+            properties: {
+              'source': source.value,
+              'reason': loginFailureReason(e),
+              'error_type': e.runtimeType.toString(),
+              'duration_ms': durationMs,
+            },
+          ),
+        );
+      }
+      final cookies = previousCookies;
+      if (cookies != null && generation == _sessionGeneration) {
+        await _restoreCookies(cookies);
       }
       rethrow;
     }
@@ -813,10 +872,7 @@ class XlfClient {
       form.toForm(),
     );
     final urls = Parsers.parseImageUrls(resp.data.toString());
-    AppLog.instance.debug(
-      '已解析答卷图片',
-      attributes: {'images': urls.length},
-    );
+    AppLog.instance.debug('已解析答卷图片', attributes: {'images': urls.length});
     return urls;
   }
 
@@ -1150,10 +1206,7 @@ class _NetworkLogInterceptor extends Interceptor {
       serverError ? AppLogLevel.error : AppLogLevel.warn,
       '${serverError ? '服务器错误' : '网络请求失败'} '
       '${options.method} ${options.uri.path}',
-      attributes: {
-        'type': err.type.name,
-        if (status != null) 'status': status,
-      },
+      attributes: {'type': err.type.name, if (status != null) 'status': status},
     );
     handler.next(err);
   }

@@ -30,6 +30,10 @@ class _SupportScreenState extends State<SupportScreen>
   SupportException? _error;
   Timer? _refreshTimer;
 
+  /// 是否有请求正在进行。静默刷新不会置 [_loading]，用它保证同一时间
+  /// 只有一个请求，避免定时器、前台恢复与手动重试互相覆盖结果。
+  bool _requestInFlight = false;
+
   @override
   void initState() {
     super.initState();
@@ -75,6 +79,16 @@ class _SupportScreenState extends State<SupportScreen>
       });
       return;
     }
+    if (_requestInFlight) return;
+    _requestInFlight = true;
+    try {
+      await _fetch(silent: silent);
+    } finally {
+      _requestInFlight = false;
+    }
+  }
+
+  Future<void> _fetch({required bool silent}) async {
     if (!silent) {
       setState(() {
         _loading = true;
@@ -624,7 +638,10 @@ class _SupportScreenState extends State<SupportScreen>
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerRight,
-            child: TextButton(onPressed: () => _load(), child: const Text('重试')),
+            child: TextButton(
+              onPressed: () => _load(),
+              child: const Text('重试'),
+            ),
           ),
         ],
       ),

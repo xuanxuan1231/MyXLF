@@ -49,6 +49,34 @@ void main() {
     expect(store.latestOf(RawCaptureKind.examList)?.body, '<html>b</html>');
   });
 
+  test('重复快照就地更新，不改变排序位置', () {
+    final store = RawCaptureStore.instance;
+    store.add(
+      kind: RawCaptureKind.examList,
+      title: '第一次',
+      body: '<html>a</html>',
+    );
+    store.add(
+      kind: RawCaptureKind.examList,
+      title: '第二次',
+      body: '<html>b</html>',
+    );
+    // 导出时会再次 add 同一份内容：应更新元数据但保持原位置。
+    store.add(
+      kind: RawCaptureKind.examList,
+      title: '导出',
+      body: '<html>a</html>',
+      fromCache: true,
+    );
+
+    expect(store.captures.map((capture) => capture.body), [
+      '<html>b</html>',
+      '<html>a</html>',
+    ]);
+    expect(store.captures.last.title, '导出');
+    expect(store.captures.last.fromCache, isTrue);
+  });
+
   test('超出容量时丢弃最旧的快照', () {
     final store = RawCaptureStore.instance..capacity = 2;
     for (var i = 0; i < 3; i++) {

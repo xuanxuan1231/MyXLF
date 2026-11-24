@@ -4,6 +4,7 @@ import 'package:m3e_core/m3e_core.dart';
 import '../models/models.dart';
 import '../services/app_log.dart';
 import '../services/enhancement_settings.dart';
+import '../services/log_sanitizer.dart';
 import '../services/offline_cache.dart';
 import '../services/parsers.dart';
 import '../services/raw_capture.dart';
@@ -109,7 +110,10 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
           final report = Parsers.parseTotalReport(cached.html);
           AppLog.instance.warn(
             '总分报告加载失败，已使用离线缓存',
-            attributes: {'test_id': widget.testId, 'error': '$e'},
+            attributes: {
+              'test_id': widget.testId,
+              'error': sanitizeExceptionText('$e'),
+            },
           );
           if (!mounted) return;
           setState(() {
@@ -128,7 +132,10 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
       }
       AppLog.instance.error(
         '总分报告加载失败',
-        attributes: {'test_id': widget.testId, 'error': '$e'},
+        attributes: {
+          'test_id': widget.testId,
+          'error': sanitizeExceptionText('$e'),
+        },
       );
       if (!mounted) return;
       setState(() {
@@ -154,12 +161,14 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
       if (!mounted) return;
       _showSnack(switch (outcome.target) {
         FileActionTarget.shared => '已打开系统分享',
-        FileActionTarget.saved =>
-          '当前平台不支持直接分享，已保存到 ${outcome.path}',
+        FileActionTarget.saved => '当前平台不支持直接分享，已保存到 ${outcome.path}',
         FileActionTarget.download => '已开始下载原始数据',
       });
     } catch (e) {
-      AppLog.instance.error('导出总分报告原始数据失败', attributes: {'error': '$e'});
+      AppLog.instance.error(
+        '导出总分报告原始数据失败',
+        attributes: {'error': sanitizeExceptionText('$e')},
+      );
       if (!mounted) return;
       _showSnack('导出失败：$e');
     }

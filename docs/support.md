@@ -98,9 +98,9 @@ Content-Type: application/json
 3. 展开 **In-app widget** 区域，启用 **Enable widget** 并 **Save**；
 4. 在 **In-app widget** 区域找到 **Public token**，复制它。
 
-**Public token 长什么样**：`secrets.token_urlsafe(32)` 生成的 URL-safe 随机串
-（约 43 个字符，包含字母、数字、`-`、`_`），**不是**项目 token（`phc_...`），
-**也不是** Personal API Key。若需要重置，点 **Regenerate token**；重置会让
+**Public token 长什么样**：以 `phc_` 开头，和项目 token 的前缀相同，但**值不同**，
+只用于 Widget 接口，不能拿来采集事件。以 Support 设置页显示的值为准，不要靠前缀
+区分（也不要填 Personal API Key）。若需要重置，点 **Regenerate token**；重置会让
 已打开的会话断开，记得同步更新客户端配置。
 
 **为什么 Direct API 里看不到它**：Direct API 是给服务端用的接口（使用
@@ -192,6 +192,7 @@ UI 与服务层完全分离：`SupportService` 不依赖任何页面，页面只
 | 404 | `/api` 未被代理，或 Support 功能未开启 | 补齐代理路径 / 启用 Support |
 | 400 `invalid request data` | `widget_session_id` 不是合法 UUID，或 `distinct_id` 为空 | 应用会自动迁移旧 ID / 生成兜底 ID；仍失败时在诊断日志里查看 `detail` |
 | 429 | 触发 Widget 限流（约 30 次/分钟/会话） | 稍后重试，避免频繁刷新 |
+| 5xx | 服务端故障或反向代理异常 | 应用会归类为服务端错误，并在诊断日志里记录 HTTP 状态与 `detail`；稍后重试，排查时把该条日志一并提供 |
 | 列表为空但客服后台有工单 | `widget_session_id` 变化（清数据 / 重装） | 属于设备级身份的预期行为 |
 | 提交按钮不可用 / 提示开启匿名使用数据 | 遥测未开启，或当前为 debug 构建 | 在工单页开启，或改用 profile / release 构建 |
 | 桌面端日志为空 | 日志只在运行时产生 | 正常；桌面端不会实时上报 Logs |

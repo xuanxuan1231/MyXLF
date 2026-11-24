@@ -132,8 +132,7 @@ class _SupportTicketScreenState extends State<SupportTicketScreen>
     for (final message in _messages) {
       if (message.id.startsWith('local-')) continue;
       final createdAt = message.createdAt;
-      if (createdAt != null &&
-          (latest == null || createdAt.isAfter(latest))) {
+      if (createdAt != null && (latest == null || createdAt.isAfter(latest))) {
         latest = createdAt;
       }
     }

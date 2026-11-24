@@ -21,7 +21,12 @@ class TelemetryNotice extends StatelessWidget {
         ),
         _bullet(context, Icons.devices_outlined, '设备平台与系统版本，例如 Android 14'),
         _bullet(context, Icons.system_update_alt, '应用版本与构建号，用于版本分布统计'),
-        _bullet(context, Icons.insights_outlined, '页面浏览与功能使用情况，用于改进界面与功能'),
+        _bullet(
+          context,
+          Icons.insights_outlined,
+          '页面浏览与功能使用情况（含登录成功 / 失败与耗时，不含账号或密码），'
+          '用于改进界面与功能',
+        ),
         _bullet(context, Icons.bug_report_outlined, '崩溃报告与异常堆栈，用于定位和修复问题'),
         _bullet(
           context,

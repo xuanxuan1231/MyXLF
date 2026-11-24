@@ -61,8 +61,13 @@ class FileActions {
     final url = web.URL.createObjectURL(blob);
     final anchor = web.HTMLAnchorElement()
       ..href = url
-      ..download = fileName;
+      ..download = fileName
+      ..style.display = 'none';
+    // 部分浏览器（如 Firefox）要求链接在文档中才会触发下载。
+    final body = web.document.body;
+    body?.appendChild(anchor);
     anchor.click();
+    anchor.remove();
     // 立即回收会让部分浏览器取消下载，延后释放。
     Future<void>.delayed(
       const Duration(seconds: 1),

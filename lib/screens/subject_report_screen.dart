@@ -3,6 +3,7 @@ import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
 import '../services/app_log.dart';
+import '../services/log_sanitizer.dart';
 import '../services/offline_cache.dart';
 import '../services/parsers.dart';
 import '../services/raw_capture.dart';
@@ -76,10 +77,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
         kind: RawCaptureKind.subjectReport,
         title: widget.link.subjectName,
         body: html,
-        meta: {
-          'test_id': widget.link.testId,
-          'paper_id': widget.link.paperId,
-        },
+        meta: {'test_id': widget.link.testId, 'paper_id': widget.link.paperId},
       );
       AppLog.instance.info(
         '已加载学科报告',
@@ -109,7 +107,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
             attributes: {
               'test_id': widget.link.testId,
               'paper_id': widget.link.paperId,
-              'error': '$e',
+              'error': sanitizeExceptionText('$e'),
             },
           );
           if (!mounted) return;
@@ -132,7 +130,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
         attributes: {
           'test_id': widget.link.testId,
           'paper_id': widget.link.paperId,
-          'error': '$e',
+          'error': sanitizeExceptionText('$e'),
         },
       );
       if (!mounted) return;
@@ -151,10 +149,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
       kind: RawCaptureKind.subjectReport,
       title: widget.link.subjectName,
       body: html,
-      meta: {
-        'test_id': widget.link.testId,
-        'paper_id': widget.link.paperId,
-      },
+      meta: {'test_id': widget.link.testId, 'paper_id': widget.link.paperId},
       fromCache: _rawFromCache,
     );
     try {
@@ -162,12 +157,14 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
       if (!mounted) return;
       _showSnack(switch (outcome.target) {
         FileActionTarget.shared => '已打开系统分享',
-        FileActionTarget.saved =>
-          '当前平台不支持直接分享，已保存到 ${outcome.path}',
+        FileActionTarget.saved => '当前平台不支持直接分享，已保存到 ${outcome.path}',
         FileActionTarget.download => '已开始下载原始数据',
       });
     } catch (e) {
-      AppLog.instance.error('导出学科报告原始数据失败', attributes: {'error': '$e'});
+      AppLog.instance.error(
+        '导出学科报告原始数据失败',
+        attributes: {'error': sanitizeExceptionText('$e')},
+      );
       if (!mounted) return;
       _showSnack('导出失败：$e');
     }

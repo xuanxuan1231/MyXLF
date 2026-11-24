@@ -134,7 +134,8 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('开始登录'), findsNothing);
-    expect(find.textContaining('网络请求失败'), findsOneWidget);  });
+    expect(find.textContaining('网络请求失败'), findsOneWidget);
+  });
 
   testWidgets('原始数据页展示空状态与已捕获快照', (tester) async {
     useTallSurface(tester);

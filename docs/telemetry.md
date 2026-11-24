@@ -82,6 +82,8 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
 - 设备平台与系统版本、应用版本与构建号（所有事件的公共属性
   `platform` / `os_version` / `app_version` / `app_build` / `locale`）；
 - 页面浏览（`$screen`）与功能使用情况；
+- 登录成功 / 失败（`Login Succeeded` / `Login Failed`：来源、耗时与失败原因分类，
+  不含账号、密码、学校或班级）；
 - 崩溃报告与异常堆栈（`$exception`）；
 - 诊断日志（PostHog Logs，见下文「诊断日志」）；
 - 生命周期事件：`Application Installed` / `Application Updated` /
@@ -139,6 +141,35 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
 在 PostHog 中，日志会自动带上 `distinct_id`、会话 ID、页面名与前后台状态，
 可在 **Logs** 页面按 `distinct_id` 关联到对应的 person。
 
+## 事件（Event）与日志（Log）的分工
+
+两条通道都发往 PostHog，但回答的问题不同：**做统计看事件，排查单次运行看日志**。
+
+| 维度 | 事件（Captured Events） | 日志（PostHog Logs） |
+| --- | --- | --- |
+| 用途 | 可聚合的统计口径：DAU、页面参与度、崩溃率、版本分布 | 单次运行的排查线索：这个用户这次为什么失败 |
+| 结构 | 固定事件名 + 属性，可建图表 / 漏斗 | 自由文本 + 属性，适合搜索与上下文串读 |
+| 覆盖 | `$screen`、生命周期、`$exception`、`Login Succeeded` / `Login Failed`、遥测同意开关 | `AppLog` 的所有写入：启动、登录、网络、缓存、工单、导出 |
+
+以下重叠是有意保留的，统计时注意不要重复计算：
+
+1. **未捕获异常**：既发 `$exception` 事件（`reportError` / `reportZoneError`），
+   也在日志里留一条「未捕获异常」（`AppLog.exception`）。崩溃率只看
+   `$exception`，**不要**再按日志里 `error` 级别的条数统计，否则会翻倍。
+2. **冷启动**：`Application Opened` 事件与「应用启动」日志各一条。装机量与
+   版本分布看事件，启动过程排查看日志。
+3. **页面访问**：`$screen` 记录导航，页面加载日志记录「加载到了什么」
+   （条数、是否走缓存、耗时）。页面参与度用事件，加载失败排查用日志。
+4. **开启遥测**：`Telemetry Opted In` 事件；在工单页开启时额外留一条
+   「在工单页开启匿名使用数据」，用于区分触发来源。
+5. **登录**：`Login Succeeded` / `Login Failed` 事件与「登录成功」「登录失败」
+   日志并存。成功率与耗时看事件（按 `source` 分组，可区分手动 / 自动 /
+   切换账号 / 会话恢复），单次失败的上下文看日志。登出导致的中断只写日志，
+   不计入失败率。
+
+其余日志（工单操作、原始数据导出、缓存回退、DWR 解析等）没有对应事件，
+属于纯排查信息。
+
 ## 原始数据导出
 
 当报告解析出现问题时，用户可以把平台返回的原始 HTML 交给客服排查：
@@ -192,6 +223,8 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
 | 装机量 | `Application Installed` 事件（自行采集，含版本信息） | Insight：All time Unique users（推荐，即设备数）；`Application Installed` 次数仅供参考 |
 | 日活 / 月活 | 任意事件 + 设备 ID | Insight → Active users → 日 / 周 / 月 |
 | 用户参与度 | `$screen` 事件、`Application Session Ended.duration_s` | Unique screens per user、平均 `duration_s`、Session 数 |
+| 登录成功率 | `Login Succeeded` / `Login Failed` 事件 | Insight：成功率 = `Login Succeeded` 数 ÷（两者之和），Breakdown `source` / `reason` |
+| 登录耗时 | `Login Succeeded.duration_ms` | Insight → Property value → 平均 `duration_ms`，Breakdown `source` |
 | 活跃安装量 | 设备 ID（ANDROID_ID / IDFV）去重 | Insight → Unique users（按时间窗口） |
 | 版本分布 | 事件属性 `app_version` / `app_build` | Insight → Breakdown `app_version` |
 | 崩溃 / 异常堆栈 | `$exception` 事件 | [Error Tracking](https://us.posthog.com/error_tracking) 页 |

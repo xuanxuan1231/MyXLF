@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../services/app_log.dart';
+import '../services/log_sanitizer.dart';
 import '../services/raw_capture.dart';
 import '../services/raw_capture_export.dart';
 import '../theme/responsive.dart';
@@ -52,9 +53,7 @@ class RawDataScreen extends StatelessWidget {
                   tooltip: '导出全部',
                 ),
                 IconButton(
-                  onPressed: captures.isEmpty
-                      ? null
-                      : () => _clear(context),
+                  onPressed: captures.isEmpty ? null : () => _clear(context),
                   icon: const Icon(Icons.delete_outline),
                   tooltip: '清空',
                 ),
@@ -133,11 +132,7 @@ class RawDataScreen extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Icon(
-            Icons.data_object,
-            size: 40,
-            color: scheme.onSurfaceVariant,
-          ),
+          Icon(Icons.data_object, size: 40, color: scheme.onSurfaceVariant),
           const SizedBox(height: 12),
           Text('还没有原始数据', style: textTheme.titleSmall),
           const SizedBox(height: 6),
@@ -308,31 +303,25 @@ class RawDataScreen extends StatelessWidget {
     _snack(context, '已复制全部原始数据');
   }
 
-  Future<void> _saveCapture(
-    BuildContext context,
-    RawCapture capture,
-  ) async {
+  Future<void> _saveCapture(BuildContext context, RawCapture capture) async {
     try {
       final outcome = await RawCaptureActions.save(capture);
       if (!context.mounted) return;
-      _snack(
-        context,
-        outcome.path == null ? '已保存' : '已保存到 ${outcome.path}',
-      );
+      _snack(context, outcome.path == null ? '已保存' : '已保存到 ${outcome.path}');
     } catch (e) {
       AppLog.instance.error(
         '保存原始数据失败',
-        attributes: {'kind': capture.kind.slug, 'error': '$e'},
+        attributes: {
+          'kind': capture.kind.slug,
+          'error': sanitizeExceptionText('$e'),
+        },
       );
       if (!context.mounted) return;
       _snack(context, '保存失败：$e');
     }
   }
 
-  Future<void> _shareCapture(
-    BuildContext context,
-    RawCapture capture,
-  ) async {
+  Future<void> _shareCapture(BuildContext context, RawCapture capture) async {
     try {
       final outcome = await RawCaptureActions.share(capture);
       if (!context.mounted) return;
@@ -340,7 +329,10 @@ class RawDataScreen extends StatelessWidget {
     } catch (e) {
       AppLog.instance.error(
         '分享原始数据失败',
-        attributes: {'kind': capture.kind.slug, 'error': '$e'},
+        attributes: {
+          'kind': capture.kind.slug,
+          'error': sanitizeExceptionText('$e'),
+        },
       );
       if (!context.mounted) return;
       _snack(context, '分享失败：$e');
@@ -355,7 +347,10 @@ class RawDataScreen extends StatelessWidget {
       if (!context.mounted) return;
       _showOutcome(context, outcome, '已打开系统分享');
     } catch (e) {
-      AppLog.instance.error('导出全部原始数据失败', attributes: {'error': '$e'});
+      AppLog.instance.error(
+        '导出全部原始数据失败',
+        attributes: {'error': sanitizeExceptionText('$e')},
+      );
       if (!context.mounted) return;
       _snack(context, '导出失败：$e');
     }

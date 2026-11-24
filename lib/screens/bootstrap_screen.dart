@@ -87,6 +87,7 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
       final result = await XlfClient.instance.login(
         defaultAccount.username,
         defaultAccount.password,
+        source: LoginSource.auto,
       );
       if (!mounted) return;
       await enterShell(context, defaultAccount, result);
