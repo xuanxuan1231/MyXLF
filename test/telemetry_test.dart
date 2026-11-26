@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:xlf/services/telemetry.dart';
@@ -55,6 +56,54 @@ void main() {
       await TelemetryService.instance.init();
       expect(TelemetryService.instance.isConfigured, isFalse);
       expect(TelemetryService.instance.isEnabled, isFalse);
+    });
+  });
+
+  group('事件发送前脱敏', () {
+    test('异常消息只保留第一行，高风险属性与查询参数被打码', () {
+      final event = TelemetryService.sanitizeEventForTest(
+        PostHogEvent(
+          event: r'$exception',
+          properties: {
+            r'$exception_list': [
+              {
+                'type': 'FormatException',
+                'value':
+                    'FormatException: Unexpected character\n'
+                    '<html>张三 98 分</html>',
+              },
+            ],
+            'username': 'alice',
+            'note': 'https://example.com/report?test_id=123&token=abc',
+          },
+        ),
+      );
+
+      final properties = event!.properties!;
+      expect(properties.containsKey('username'), isFalse);
+
+      final exceptions = properties[r'$exception_list'] as List;
+      final value = (exceptions.single as Map)['value'] as String;
+      expect(value, contains('FormatException'));
+      expect(value, isNot(contains('张三')));
+      expect(value, isNot(contains('98 分')));
+
+      final note = properties['note'] as String;
+      expect(note, isNot(contains('123')));
+      expect(note, isNot(contains('abc')));
+      expect(note, contains('test_id=***'));
+    });
+
+    test('用户属性中的敏感字段同样被丢弃', () {
+      final event = TelemetryService.sanitizeEventForTest(
+        PostHogEvent(
+          event: r'$identify',
+          userProperties: {'username': 'alice', 'app_version': '1.0.0'},
+        ),
+      );
+
+      expect(event!.userProperties!.containsKey('username'), isFalse);
+      expect(event.userProperties!['app_version'], '1.0.0');
     });
   });
 }

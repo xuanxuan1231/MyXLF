@@ -55,7 +55,7 @@ void main() {
     expect(checkbox.value, isTrue);
     expect(find.text('确认'), findsOneWidget);
     expect(find.text('我们会收集（全部匿名）'), findsOneWidget);
-    expect(find.text('我们绝不会收集'), findsOneWidget);
+    expect(find.text('我们绝不会自动收集'), findsOneWidget);
   });
 
   testWidgets('取消勾选后确认，不参与统计', (tester) async {

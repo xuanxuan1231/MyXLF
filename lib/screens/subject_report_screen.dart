@@ -1,9 +1,15 @@
+import 'dart:convert';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/app_log.dart';
+import '../services/log_sanitizer.dart';
 import '../services/offline_cache.dart';
 import '../services/parsers.dart';
+import '../services/raw_capture.dart';
+import '../services/raw_capture_export.dart';
 import '../services/xlf_client.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -45,6 +51,10 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
   bool _fromCache = false;
   DateTime? _cachedAt;
 
+  /// 当前展示内容对应的原始响应，供「导出原始数据」使用。
+  String? _rawHtml;
+  bool _rawFromCache = false;
+
   @override
   void initState() {
     super.initState();
@@ -63,11 +73,30 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
     );
     try {
       final html = await XlfClient.instance.fetchSubjectReportHtml(widget.link);
-      await OfflineCache.instance.write(cacheKey, html);
+      // 先保存原始响应再解析：解析失败时也要能导出这次响应用于排查。
+      RawCaptureStore.instance.add(
+        kind: RawCaptureKind.subjectReport,
+        title: widget.link.subjectName,
+        body: html,
+        meta: {'test_id': widget.link.testId, 'paper_id': widget.link.paperId},
+      );
       final report = Parsers.parseSubjectReport(html);
+      // 解析成功后才覆盖离线缓存，避免坏响应把上一份可用缓存冲掉。
+      await OfflineCache.instance.write(cacheKey, html);
+      AppLog.instance.info(
+        '已加载学科报告',
+        attributes: {
+          'test_id': widget.link.testId,
+          'paper_id': widget.link.paperId,
+          'questions': report.questions.length,
+          'bytes': utf8.encode(html).length,
+        },
+      );
       if (!mounted) return;
       setState(() {
         _report = report;
+        _rawHtml = html;
+        _rawFromCache = false;
         _loading = false;
         _fromCache = false;
         _cachedAt = null;
@@ -77,9 +106,19 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
       if (cached != null) {
         try {
           final report = Parsers.parseSubjectReport(cached.html);
+          AppLog.instance.warn(
+            '学科报告加载失败，已使用离线缓存',
+            attributes: {
+              'test_id': widget.link.testId,
+              'paper_id': widget.link.paperId,
+              'error': sanitizeExceptionText('$e'),
+            },
+          );
           if (!mounted) return;
           setState(() {
             _report = report;
+            _rawHtml = cached.html;
+            _rawFromCache = true;
             _loading = false;
             _error = null;
             _fromCache = true;
@@ -90,12 +129,55 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
           // 缓存损坏时按真实网络错误处理。
         }
       }
+      AppLog.instance.error(
+        '学科报告加载失败',
+        attributes: {
+          'test_id': widget.link.testId,
+          'paper_id': widget.link.paperId,
+          'error': sanitizeExceptionText('$e'),
+        },
+      );
       if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
       });
     }
+  }
+
+  /// 把当前展示的原始 HTML 保存 / 分享给用户，便于反馈解析问题。
+  Future<void> _exportRawData() async {
+    final html = _rawHtml;
+    if (html == null) return;
+    final capture = RawCaptureStore.instance.add(
+      kind: RawCaptureKind.subjectReport,
+      title: widget.link.subjectName,
+      body: html,
+      meta: {'test_id': widget.link.testId, 'paper_id': widget.link.paperId},
+      fromCache: _rawFromCache,
+    );
+    try {
+      final outcome = await RawCaptureActions.share(capture);
+      if (!mounted) return;
+      _showSnack(switch (outcome.target) {
+        FileActionTarget.shared => '已打开系统分享',
+        FileActionTarget.saved => '当前平台不支持直接分享，已保存到 ${outcome.path}',
+        FileActionTarget.download => '已开始下载原始数据',
+      });
+    } catch (e) {
+      AppLog.instance.error(
+        '导出学科报告原始数据失败',
+        attributes: {'error': sanitizeExceptionText('$e')},
+      );
+      if (!mounted) return;
+      _showSnack('导出失败：$e');
+    }
+  }
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
   }
 
   @override
@@ -113,6 +195,12 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
             tooltip: '刷新学科分析',
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh),
+          ),
+        if (_rawHtml != null && _error == null)
+          IconButton(
+            tooltip: '导出原始数据',
+            onPressed: _exportRawData,
+            icon: const Icon(Icons.data_object),
           ),
       ],
       body: _buildBody(),
@@ -133,6 +221,13 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
                 Text(_error!, textAlign: TextAlign.center),
                 const SizedBox(height: 12),
                 M3EFilledButton(onPressed: _load, child: const Text('重试')),
+                if (_rawHtml != null) ...[
+                  const SizedBox(height: 4),
+                  M3ETextButton(
+                    onPressed: _exportRawData,
+                    child: const Text('导出上次成功加载的原始数据'),
+                  ),
+                ],
               ],
             ),
           ),

@@ -52,6 +52,19 @@ class XlfReauthResult {
   final String? message;
 }
 
+/// 登录失败原因（事件属性 `reason`）。
+///
+/// 只保留粗粒度分类，任何情况下都不带账号、密码或平台返回的提示原文。
+String loginFailureReason(Object error) => switch (error) {
+  // 注意顺序：锁定 / 会话失效都继承自 [XlfAuthException]，必须先匹配。
+  XlfAccountLockedException() => 'account_locked',
+  XlfSessionExpiredException() => 'session_expired',
+  XlfAuthException() => 'invalid_credentials',
+  XlfNetworkException() => 'network',
+  XlfException() => 'platform_error',
+  _ => 'unknown',
+};
+
 const List<String> _lockKeywords = ['锁定', '锁住', '冻结', '限制登录', '禁止登录', 'locked'];
 
 /// 「再输错将被锁定」这类警告描述的是未来状态，本质仍是密码错误。

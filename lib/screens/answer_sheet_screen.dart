@@ -4,8 +4,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/app_log.dart';
 import '../services/image_actions.dart';
 import '../services/image_store.dart';
+import '../services/log_sanitizer.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_pull_to_refresh.dart';
@@ -45,12 +47,17 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
     });
     try {
       final urls = await XlfClient.instance.fetchAnswerSheetImages(widget.form);
+      AppLog.instance.info('已加载答卷图片', attributes: {'pages': urls.length});
       if (!mounted) return;
       setState(() {
         _urls = urls;
         _loading = false;
       });
     } catch (e) {
+      AppLog.instance.error(
+        '答卷图片加载失败',
+        attributes: {'error': sanitizeExceptionText('$e')},
+      );
       if (!mounted) return;
       setState(() {
         _error = e.toString();
@@ -96,6 +103,10 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
       final bytes = await ImageStore.load(url);
       await action(bytes, _fileName(index));
     } catch (e) {
+      AppLog.instance.error(
+        '答卷图片操作失败',
+        attributes: {'page': index + 1, 'error': sanitizeExceptionText('$e')},
+      );
       _showMessage('操作失败：$e');
     } finally {
       if (mounted) setState(() => _busyUrl = null);
@@ -108,6 +119,10 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
         bytes,
         fileName: fileName,
         text: '${widget.title} · 第 ${index + 1} 页',
+      );
+      AppLog.instance.info(
+        '已分享答卷图片',
+        attributes: {'page': index + 1, 'target': outcome.target.name},
       );
       switch (outcome.target) {
         case ShareTarget.download:
@@ -125,6 +140,10 @@ class _AnswerSheetScreenState extends State<AnswerSheetScreen> {
       final outcome = await ImageActions.saveToGallery(
         bytes,
         fileName: fileName,
+      );
+      AppLog.instance.info(
+        '已保存答卷图片',
+        attributes: {'page': index + 1, 'target': outcome.target.name},
       );
       _showMessage(switch (outcome.target) {
         SaveTarget.gallery => '已保存到相册',

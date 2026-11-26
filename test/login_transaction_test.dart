@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:xlf/services/app_log.dart';
+import 'package:xlf/services/telemetry.dart';
 import 'package:xlf/services/xlf_client.dart';
 
 /// 用可控的假服务器验证登录的事务性：
@@ -213,6 +215,108 @@ void main() {
         ),
       ),
     );
+  });
+
+  group('登录埋点', () {
+    setUp(() {
+      AppLog.instance.resetForTest();
+      AppLog.instance.forwardToPostHog = false;
+      TelemetryService.instance.resetForTest();
+    });
+
+    tearDown(() {
+      AppLog.instance.resetForTest();
+      TelemetryService.instance.resetForTest();
+    });
+
+    Map<String, Map<String, Object>?> recordEvents() {
+      final events = <String, Map<String, Object>?>{};
+      TelemetryService.instance.debugCaptureSpy = (name, properties) {
+        events[name] = properties;
+      };
+      return events;
+    }
+
+    test('登录成功同时写日志与事件', () async {
+      final events = recordEvents();
+
+      await XlfClient.instance.login('A', 'pass-A');
+
+      final entry = AppLog.instance.recent().lastWhere(
+        (item) => item.message == '登录成功',
+      );
+      expect(entry.level, AppLogLevel.info);
+      expect(entry.attributes['has_school'], isTrue);
+      expect(entry.attributes['duration_ms'], isA<int>());
+
+      final properties = events['Login Succeeded'];
+      expect(properties?['source'], 'manual');
+      expect(properties?['has_class'], isTrue);
+      expect(properties?['duration_ms'], isA<int>());
+    });
+
+    test('登录失败一定写日志，并上报 Login Failed 事件', () async {
+      final events = recordEvents();
+      server.credentialsValid = false;
+
+      await expectLater(
+        XlfClient.instance.login('B', 'bad-password'),
+        throwsA(isA<XlfAuthException>()),
+      );
+
+      final entry = AppLog.instance.recent().lastWhere(
+        (item) => item.message == '登录失败',
+      );
+      expect(entry.level, AppLogLevel.warn);
+      expect(entry.attributes['type'], 'XlfAuthException');
+      expect(entry.attributes['duration_ms'], isA<int>());
+      // 日志只带类型与耗时，不带账号或密码。
+      expect(entry.attributes.keys, unorderedEquals(['type', 'duration_ms']));
+      expect(entry.toLine(), isNot(contains('bad-password')));
+
+      final properties = events['Login Failed'];
+      expect(properties?['reason'], 'invalid_credentials');
+      expect(properties?['source'], 'manual');
+      expect(properties?['error_type'], 'XlfAuthException');
+    });
+
+    test('自动登录与会话恢复带来源标记', () async {
+      final events = recordEvents();
+
+      await XlfClient.instance.login('A', 'pass-A', source: LoginSource.auto);
+      expect(events['Login Succeeded']?['source'], 'auto');
+
+      events.clear();
+      await XlfClient.instance.login(
+        'A',
+        'pass-A',
+        source: LoginSource.sessionRecovery,
+      );
+      expect(events['Login Succeeded']?['source'], 'session_recovery');
+    });
+  });
+
+  group('登录失败原因分类', () {
+    test('按异常类型给出粗粒度原因，且不含账号信息', () {
+      expect(
+        loginFailureReason(const XlfAccountLockedException()),
+        'account_locked',
+      );
+      expect(
+        loginFailureReason(const XlfSessionExpiredException()),
+        'session_expired',
+      );
+      expect(
+        loginFailureReason(const XlfAuthException('用户名或密码错误')),
+        'invalid_credentials',
+      );
+      expect(loginFailureReason(const XlfNetworkException()), 'network');
+      expect(
+        loginFailureReason(const XlfException('平台返回格式异常')),
+        'platform_error',
+      );
+      expect(loginFailureReason(StateError('boom')), 'unknown');
+    });
   });
 }
 

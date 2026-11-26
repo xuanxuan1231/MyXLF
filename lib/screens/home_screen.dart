@@ -2,9 +2,12 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/app_log.dart';
 import '../services/exam_search.dart';
+import '../services/log_sanitizer.dart';
 import '../services/offline_cache.dart';
 import '../services/parsers.dart';
+import '../services/raw_capture.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_pull_to_refresh.dart';
@@ -133,8 +136,23 @@ class _HomeScreenState extends State<HomeScreen> {
       schoolYearId: _schoolYearId,
       testSemester: _testSemester,
     );
+    void capture(String html) {
+      RawCaptureStore.instance.add(
+        kind: RawCaptureKind.examList,
+        title: _hasServerFilters ? '考试列表（已筛选）' : '考试列表',
+        body: html,
+        meta: {
+          if ((_schoolYearId ?? '').isNotEmpty)
+            'school_year_id': _schoolYearId!,
+          if ((_testSemester ?? '').isNotEmpty) 'semester': _testSemester!,
+        },
+      );
+    }
+
     try {
       var html = await _fetch();
+      // 先保存原始响应再解析：解析失败时也要能导出这次响应用于排查。
+      capture(html);
       var exams = Parsers.parseExamList(html);
 
       // 服务器偶发会清空考试列表（浏览报告后尤其常见）。此时用当前登录
@@ -142,6 +160,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (exams.isEmpty) {
         await XlfClient.instance.relogin();
         html = await _fetch();
+        capture(html);
         exams = Parsers.parseExamList(html);
       }
 
@@ -149,6 +168,13 @@ class _HomeScreenState extends State<HomeScreen> {
       if (exams.isNotEmpty) {
         await OfflineCache.instance.write(cacheKey, html);
       }
+      AppLog.instance.info(
+        '已加载考试列表',
+        attributes: {
+          'exams': exams.length,
+          'server_filters': _hasServerFilters,
+        },
+      );
       if (!mounted) return;
       setState(() {
         _applyLoaded(exams, filters);
@@ -163,6 +189,10 @@ class _HomeScreenState extends State<HomeScreen> {
         try {
           final exams = Parsers.parseExamList(cached.html);
           final filters = Parsers.parseFilters(cached.html);
+          AppLog.instance.warn(
+            '考试列表加载失败，已使用离线缓存',
+            attributes: {'error': sanitizeExceptionText('$e')},
+          );
           if (!mounted) return;
           setState(() {
             _applyLoaded(exams, filters);
@@ -176,6 +206,10 @@ class _HomeScreenState extends State<HomeScreen> {
           // 缓存内容损坏时按真实网络错误处理。
         }
       }
+      AppLog.instance.error(
+        '考试列表加载失败',
+        attributes: {'error': sanitizeExceptionText('$e')},
+      );
       if (!mounted) return;
       setState(() {
         _error = e.toString();

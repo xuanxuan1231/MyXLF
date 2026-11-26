@@ -2,6 +2,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/app_log.dart';
+import '../services/log_sanitizer.dart';
 import '../services/parsers.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
@@ -35,12 +37,17 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
     try {
       final html = await XlfClient.instance.fetchLoginHistoryHtml();
       final entries = Parsers.parseLoginHistory(html);
+      AppLog.instance.info('已加载登录历史', attributes: {'entries': entries.length});
       if (!mounted) return;
       setState(() {
         _entries = entries;
         _loading = false;
       });
     } catch (e) {
+      AppLog.instance.error(
+        '登录历史加载失败',
+        attributes: {'error': sanitizeExceptionText('$e')},
+      );
       if (!mounted) return;
       setState(() {
         _error = e.toString();

@@ -10,7 +10,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
 import 'locale_name.dart';
+import 'log_sanitizer.dart';
 import 'os_version.dart';
+import 'uuid.dart';
 
 /// PostHog 遥测服务：统一管理 SDK 初始化、采集开关与事件上报。
 ///
@@ -42,6 +44,13 @@ class TelemetryService {
   /// 用于自行判断本次启动是首次安装还是版本升级。
   static const String _kLastVersionKey = 'telemetry_last_version';
 
+  /// 设备 ID 兜底值（SharedPreferences 键）。
+  ///
+  /// 遥测未初始化（debug 构建、桌面端或 SDK 初始化失败）时拿不到原生
+  /// 设备标识；工单接口要求 `distinct_id` 非空，因此持久化一个随机
+  /// UUID 作为设备级身份。
+  static const String _kFallbackDeviceIdKey = 'device_distinct_id';
+
   /// 遥测 SDK 是否已成功初始化。
   bool _configured = false;
 
@@ -51,6 +60,9 @@ class TelemetryService {
   /// 设备 ID：Android 为 ANDROID_ID，iOS 为 IDFV，其他平台为空（回退到
   /// PostHog 生成的随机 UUID）。
   String _deviceId = '';
+
+  /// 本地存储不可用时生成的兜底设备 ID，在本次进程内复用。
+  String? _fallbackDeviceIdCache;
 
   /// 应用版本信息，初始化时读取一次。
   PackageInfo? _packageInfo;
@@ -111,6 +123,11 @@ class TelemetryService {
   static void enableForTest() {
     _debugTelemetryEnabled = true;
   }
+
+  /// 仅测试：观察所有 [capture] 调用（无论遥测是否开启），用于断言埋点。
+  @visibleForTesting
+  void Function(String eventName, Map<String, Object>? properties)?
+  debugCaptureSpy;
 
   /// 构建模式标签：debug / profile / release，作为事件属性 `app_env`。
   static String get envName {
@@ -204,6 +221,29 @@ class TelemetryService {
         ..captureNativeExceptions = true
         ..captureNativeCrashes = true;
 
+      // 诊断日志（PostHog Logs）：
+      // - 日志内容由 AppLog 统一写入并脱敏，这里再兜底一次；
+      // - 10 秒 / 10 条触发一次上报，兼顾「实时」与耗电；
+      // - 缓冲区与速率上限避免异常刷屏时产生大量请求。
+      // - Windows / Linux / macOS 不支持 Logs，配置不会生效，但本机缓冲
+      //   仍可用于工单诊断信息。
+      final logs = config.logsConfig
+        ..serviceName = 'myxlf'
+        ..serviceVersion =
+            '${_packageInfo?.version}+${_packageInfo?.buildNumber}'
+        ..environment = envName
+        ..resourceAttributes = {'app_env': envName, 'platform': platformName}
+        ..flushInterval = const Duration(seconds: 10)
+        ..flushAt = 10
+        ..maxBufferSize = 500
+        ..rateCapMaxLogs = 400
+        ..rateCapWindow = const Duration(seconds: 10);
+      logs.beforeSend = [_sanitizeLogRecord];
+
+      // 所有事件（含 `$exception`）发送前的最后一道脱敏：异常消息只保留
+      // 第一行、属性值去掉凭据 / 查询参数，高风险属性名直接丢弃。
+      config.beforeSend = [_sanitizeEvent];
+
       await Posthog().setup(config);
       _configured = true;
 
@@ -214,6 +254,100 @@ class TelemetryService {
       _configured = false;
       if (kDebugMode) debugPrint('PostHog 遥测初始化失败：$e');
     }
+  }
+
+  /// PostHog Logs 发送前的最后一道脱敏。
+  ///
+  /// AppLog 已经处理过一遍，但直接调用 `Posthog().captureLog()` 的地方
+  /// （以及未来新增的埋点）也会经过这里，避免遗漏。
+  static PostHogLogRecord? _sanitizeLogRecord(PostHogLogRecord record) {
+    final body = sanitizeLogText(record.body);
+    if (body.trim().isEmpty) return null;
+    final attributes = sanitizeLogAttributes(record.attributes);
+    return PostHogLogRecord(
+      body: body,
+      level: record.level,
+      attributes: attributes.isEmpty ? null : attributes,
+    );
+  }
+
+  /// 事件发送前的最后一道脱敏。
+  ///
+  /// `AppLog` 与工单诊断信息已经处理过一遍，但 `$exception`、`$screen` 与
+  /// 未来新增的埋点都会经过这里。异常消息只保留第一行，避免
+  /// `FormatException` 把解析失败的 HTML / JSON 片段（可能含姓名、成绩）
+  /// 带到 PostHog；所有字符串属性同样按日志规则脱敏。
+  static PostHogEvent? _sanitizeEvent(PostHogEvent event) {
+    return PostHogEvent(
+      event: event.event,
+      properties: _sanitizeEventProperties(event.properties),
+      userProperties: _sanitizeEventProperties(event.userProperties),
+      userPropertiesSetOnce: _sanitizeEventProperties(
+        event.userPropertiesSetOnce,
+      ),
+    );
+  }
+
+  /// 测试专用：直接验证事件脱敏规则。
+  @visibleForTesting
+  static PostHogEvent? sanitizeEventForTest(PostHogEvent event) =>
+      _sanitizeEvent(event);
+
+  static Map<String, Object>? _sanitizeEventProperties(
+    Map<String, Object>? properties,
+  ) {
+    if (properties == null || properties.isEmpty) return properties;
+    final result = <String, Object>{};
+    for (final entry in properties.entries) {
+      if (isSensitiveLogKey(entry.key)) continue;
+      if (entry.key == r'$exception_list') {
+        result[entry.key] = _sanitizeExceptionList(entry.value);
+      } else {
+        result[entry.key] = _sanitizeEventValue(entry.value);
+      }
+    }
+    return result.isEmpty ? null : result;
+  }
+
+  /// `$exception_list` 的 `value` 使用更严格的「只保留第一行」规则。
+  static Object _sanitizeExceptionList(Object value) {
+    if (value is! List) return _sanitizeEventValue(value);
+    return value
+        .map((item) {
+          if (item is Map) {
+            final result = <String, Object>{};
+            for (final entry in item.entries) {
+              final key = '${entry.key}';
+              if (isSensitiveLogKey(key)) continue;
+              final child = entry.value;
+              result[key] = key == 'value' && child is String
+                  ? sanitizeExceptionText(child)
+                  : _sanitizeEventValue(child);
+            }
+            return result;
+          }
+          return _sanitizeEventValue(item);
+        })
+        .toList(growable: false);
+  }
+
+  static Object _sanitizeEventValue(Object? value) {
+    if (value == null) return '';
+    if (value is String) return sanitizeLogText(value);
+    if (value is num || value is bool) return value;
+    if (value is Map) {
+      final result = <String, Object>{};
+      for (final entry in value.entries) {
+        final key = '${entry.key}';
+        if (isSensitiveLogKey(key)) continue;
+        result[key] = _sanitizeEventValue(entry.value);
+      }
+      return result;
+    }
+    if (value is Iterable) {
+      return value.map(_sanitizeEventValue).toList(growable: false);
+    }
+    return sanitizeLogText(value.toString());
   }
 
   /// 读取设备 ID：Android 为 Settings.Secure.ANDROID_ID，iOS 为 IDFV。
@@ -412,6 +546,7 @@ class TelemetryService {
     String eventName, {
     Map<String, Object>? properties,
   }) async {
+    debugCaptureSpy?.call(eventName, properties);
     if (!isEnabled) return false;
     try {
       await Posthog().capture(eventName: eventName, properties: properties);
@@ -430,18 +565,91 @@ class TelemetryService {
     } catch (_) {}
   }
 
+  /// 当前平台是否支持 PostHog Logs。
+  ///
+  /// 官方只支持 Android / iOS / Web；Windows、Linux、macOS 上日志仍会写入
+  /// 本机环形缓冲（可用于工单诊断信息），但不会实时上报。
+  static bool get logsSupported =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// 上报一条诊断日志（PostHog Logs）。
+  ///
+  /// 遥测关闭、平台不支持或发送失败时静默跳过；日志内容与属性都会先脱敏。
+  Future<void> captureLog(
+    String body, {
+    PostHogLogSeverity level = PostHogLogSeverity.info,
+    Map<String, Object>? attributes,
+  }) async {
+    if (!isEnabled || !logsSupported) return;
+    final safeBody = sanitizeLogText(body);
+    if (safeBody.trim().isEmpty) return;
+    final safeAttributes = sanitizeLogAttributes(attributes);
+    try {
+      await Posthog().captureLog(
+        body: safeBody,
+        level: level,
+        attributes: safeAttributes.isEmpty ? null : safeAttributes,
+      );
+    } catch (_) {
+      // 日志上报失败绝不能影响应用本身。
+    }
+  }
+
+  /// 应用版本标签（`version+build`），工单诊断信息使用。
+  String get appVersionLabel {
+    final info = _packageInfo;
+    if (info == null) return '未知';
+    return '${info.version}+${info.buildNumber}';
+  }
+
+  /// 工单附带的诊断信息：只包含版本、平台、设备 ID 等匿名字段，
+  /// 不包含账号、姓名、学校 / 班级、成绩或答卷。
+  Future<Map<String, Object>> diagnostics() async {
+    return {
+      'app_version': _packageInfo?.version ?? '未知',
+      'app_build': _packageInfo?.buildNumber ?? '未知',
+      'app_env': envName,
+      'platform': platformName,
+      'os_version': osVersion,
+      'locale': localeName,
+      'distinct_id': await distinctId(),
+      'logs_supported': logsSupported,
+    };
+  }
+
   /// 当前匿名设备 ID：Android 为 ANDROID_ID，iOS 为 IDFV，其他平台为
   /// PostHog SDK 生成并保存在本机的随机 UUID。
   ///
   /// 仅用于去重统计，不关联任何账号身份；SDK 未初始化时返回读取到的
-  /// 设备 ID（未读到则为空串）。
+  /// 设备 ID。都取不到时（debug 构建、桌面端等）生成并持久化一个随机
+  /// UUID，保证工单接口的 `distinct_id` 不为空。
   Future<String> distinctId() async {
-    if (!_configured) return _deviceId;
+    if (_configured) {
+      try {
+        final id = await Posthog().getDistinctId();
+        if (id.isNotEmpty) return id;
+      } catch (_) {}
+    }
+    if (_deviceId.isNotEmpty) return _deviceId;
+    return _fallbackDeviceId();
+  }
+
+  Future<String> _fallbackDeviceId() async {
+    // 本地存储曾经不可用时，优先复用内存中的兜底值，保证会话内稳定。
+    final cached = _fallbackDeviceIdCache;
+    if (cached != null) return cached;
     try {
-      final id = await Posthog().getDistinctId();
-      return id.isNotEmpty ? id : _deviceId;
+      final prefs = await SharedPreferences.getInstance();
+      final existing = prefs.getString(_kFallbackDeviceIdKey);
+      if (existing != null && existing.isNotEmpty) return existing;
+      final created = newUuidV4();
+      await prefs.setString(_kFallbackDeviceIdKey, created);
+      return created;
     } catch (_) {
-      return _deviceId;
+      // 本地存储不可用时返回临时值：本次会话内稳定，重启后会变化。
+      return _fallbackDeviceIdCache ??= newUuidV4();
     }
   }
 
@@ -482,9 +690,11 @@ class TelemetryService {
   @visibleForTesting
   void resetForTest() {
     _debugTelemetryEnabled = false;
+    debugCaptureSpy = null;
     _configured = false;
     _consent = false;
     _deviceId = '';
+    _fallbackDeviceIdCache = null;
     _packageInfo = null;
     _openReported = false;
     _firstForeground = true;

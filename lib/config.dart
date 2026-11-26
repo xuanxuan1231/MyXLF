@@ -61,10 +61,28 @@ const String kUpdateManifestUrl = String.fromEnvironment(
 const String kPosthogApiKey =
     'phc_sWRfhQKVLNn2YkrfhhR7CdSE3LCRYoLsns5oN9rSsaVr';
 
-/// PostHog 采集地址（美国云）。
+/// PostHog 采集地址（自建实例）。
 ///
-/// 自建实例时改为自己的域名即可。
+/// 事件、Logs 与 Support 工单接口共用该域名，反向代理需同时转发 `/api/`。
 const String kPosthogHost = 'https://instrumental-sense.helloswx.top';
 
 /// PostHog 隐私说明（「隐私与遥测」设置页展示）。
 const String kPosthogPrivacyUrl = 'https://posthog.com/privacy';
+
+/// PostHog Support（Conversations）公开 token。
+///
+/// 获取方式：Support → Settings → 启用 Support → **In-app widget** 区域的
+/// **Public token**。它和上面的 [kPosthogApiKey] 都以 `phc_` 开头，但**值
+/// 不同、用途也不同**：项目 token 用于事件采集，Support Public token 只用于
+/// Widget 接口，两者不能互换；也不要填 Personal API Key（它不该出现在客户端）。
+/// 判断是否填对，以 Support 设置页显示的值为准，不要只看前缀。
+///
+/// 留空时应用内的在线工单入口会提示「暂未开放」，并引导到使用文档。
+/// 构建时可通过 `--dart-define=POSTHOG_CONVERSATIONS_TOKEN=...` 注入。
+const String kPosthogConversationsToken = String.fromEnvironment(
+  'POSTHOG_CONVERSATIONS_TOKEN',
+  defaultValue: 'phc_mpnVqLeE9c6UhwZzUAdQNvLTueaDUAq72B76pzBWjen8',
+);
+
+/// 在线工单不可用时的兜底入口：软件介绍 / 使用文档（语雀）。
+const String kHelpDocUrl = 'https://pkuschool.yuque.com/tqpgmr/helloswx/myxlf';
