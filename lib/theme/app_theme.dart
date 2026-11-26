@@ -5,6 +5,20 @@ import 'package:m3e_core/m3e_core.dart';
 /// 品牌主色（与网页端一致的蓝色）。
 const Color kSeedColor = Color(0xFF2F6FED);
 
+/// 主字体族：Google Sans Flex（不含中日韩字形）。
+const String kPrimaryFontFamily = 'GoogleSansFlex';
+
+/// 中文字体族：随应用打包的 Google Noto Sans SC 可变字体。
+///
+/// Google Sans Flex 缺少中文（以及其他 CJK）字形，如果不指定回退字体，
+/// Flutter 会使用运行系统自带的默认中文字体，导致不同设备上排版不一致。
+/// 把 [kCjkFontFamily] 声明为首选回退后，中文始终由应用内置字体渲染。
+/// 该文件是覆盖 GBK 字符集的可变字体子集，单个文件即可提供全部字重。
+const String kCjkFontFamily = 'NotoSansSC';
+
+/// 文本字体回退顺序：先尝试主字体，缺字时使用内置的中文字体。
+const List<String> kFontFamilyFallback = <String>[kCjkFontFamily];
+
 /// 桌面端滚动行为：允许用鼠标拖动滚动内容。
 ///
 /// Flutter 默认只在触摸屏上启用拖动，桌面端鼠标用户通常用滚轮或滚动条；
@@ -32,7 +46,8 @@ class AppTheme {
         : M3EColorScheme.light(seedColor: kSeedColor);
     final base = ThemeData(
       colorScheme: scheme,
-      fontFamily: 'GoogleSansFlex',
+      fontFamily: kPrimaryFontFamily,
+      fontFamilyFallback: kFontFamilyFallback,
       appBarTheme: const AppBarTheme(centerTitle: true),
       cardTheme: const CardThemeData(
         elevation: 0,

@@ -67,6 +67,8 @@ class _ScoreRatePainter extends CustomPainter {
     final labelStyle = TextStyle(
       fontSize: 9,
       color: colorScheme.onSurfaceVariant,
+      fontFamily: kPrimaryFontFamily,
+      fontFamilyFallback: kFontFamilyFallback,
     );
 
     for (var i = 0; i < questions.length; i++) {

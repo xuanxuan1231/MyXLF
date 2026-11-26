@@ -50,11 +50,11 @@ class _TypicalAnswerPreviewState extends State<TypicalAnswerPreview> {
       _error = null;
     });
     try {
-      final images =
-          await XlfClient.instance.fetchTypicalAnswerImagesForQuestion(
-        widget.form,
-        widget.questionNumber,
-      );
+      final images = await XlfClient.instance
+          .fetchTypicalAnswerImagesForQuestion(
+            widget.form,
+            widget.questionNumber,
+          );
       if (!mounted) return;
       setState(() {
         _images = images;
@@ -182,8 +182,8 @@ class _Thumbnail extends StatelessWidget {
     final color = label.contains('错误')
         ? scheme.error
         : label.contains('优秀') || label.contains('满分') || label.contains('高分')
-            ? appColors.success
-            : scheme.primary;
+        ? appColors.success
+        : scheme.primary;
 
     return SizedBox(
       width: 132,
