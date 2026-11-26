@@ -7,6 +7,7 @@ import 'package:motor/motor.dart';
 
 import '../models/models.dart';
 import '../services/account_store.dart';
+import '../services/raw_capture.dart';
 import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
@@ -28,6 +29,8 @@ Future<void> enterShell(
     classId: result.classId,
     lastLoginAt: DateTime.now().millisecondsSinceEpoch,
   );
+  // 登录 / 恢复会话前清空上一账号的原始响应，避免跨账号查看或导出。
+  RawCaptureStore.instance.clear();
   // 清除上一轮遗留的错误，再保存账号；安全存储失败不应阻断本次登录。
   AccountStore.instance.consumeLastError();
   Account saved;
@@ -89,6 +92,8 @@ class _MainShellState extends State<MainShell> {
 
   /// 切换账号（由账户管理页调用）。
   void _switchAccount(Account account, LoginResult result) {
+    // 原始响应可能包含上一账号的成绩与个人信息，切换成功后立即清空。
+    RawCaptureStore.instance.clear();
     setState(() {
       _account = account;
       _loginResult = result;

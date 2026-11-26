@@ -136,22 +136,7 @@ class _HomeScreenState extends State<HomeScreen> {
       schoolYearId: _schoolYearId,
       testSemester: _testSemester,
     );
-    try {
-      var html = await _fetch();
-      var exams = Parsers.parseExamList(html);
-
-      // 服务器偶发会清空考试列表（浏览报告后尤其常见）。此时用当前登录
-      // 账号自动重新登录一次以恢复会话；仍为空则按真实「暂无记录」展示。
-      if (exams.isEmpty) {
-        await XlfClient.instance.relogin();
-        html = await _fetch();
-        exams = Parsers.parseExamList(html);
-      }
-
-      final filters = Parsers.parseFilters(html);
-      if (exams.isNotEmpty) {
-        await OfflineCache.instance.write(cacheKey, html);
-      }
+    void capture(String html) {
       RawCaptureStore.instance.add(
         kind: RawCaptureKind.examList,
         title: _hasServerFilters ? '考试列表（已筛选）' : '考试列表',
@@ -162,6 +147,27 @@ class _HomeScreenState extends State<HomeScreen> {
           if ((_testSemester ?? '').isNotEmpty) 'semester': _testSemester!,
         },
       );
+    }
+
+    try {
+      var html = await _fetch();
+      // 先保存原始响应再解析：解析失败时也要能导出这次响应用于排查。
+      capture(html);
+      var exams = Parsers.parseExamList(html);
+
+      // 服务器偶发会清空考试列表（浏览报告后尤其常见）。此时用当前登录
+      // 账号自动重新登录一次以恢复会话；仍为空则按真实「暂无记录」展示。
+      if (exams.isEmpty) {
+        await XlfClient.instance.relogin();
+        html = await _fetch();
+        capture(html);
+        exams = Parsers.parseExamList(html);
+      }
+
+      final filters = Parsers.parseFilters(html);
+      if (exams.isNotEmpty) {
+        await OfflineCache.instance.write(cacheKey, html);
+      }
       AppLog.instance.info(
         '已加载考试列表',
         attributes: {

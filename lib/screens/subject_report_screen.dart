@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
@@ -71,21 +73,23 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
     );
     try {
       final html = await XlfClient.instance.fetchSubjectReportHtml(widget.link);
-      await OfflineCache.instance.write(cacheKey, html);
-      final report = Parsers.parseSubjectReport(html);
+      // 先保存原始响应再解析：解析失败时也要能导出这次响应用于排查。
       RawCaptureStore.instance.add(
         kind: RawCaptureKind.subjectReport,
         title: widget.link.subjectName,
         body: html,
         meta: {'test_id': widget.link.testId, 'paper_id': widget.link.paperId},
       );
+      final report = Parsers.parseSubjectReport(html);
+      // 解析成功后才覆盖离线缓存，避免坏响应把上一份可用缓存冲掉。
+      await OfflineCache.instance.write(cacheKey, html);
       AppLog.instance.info(
         '已加载学科报告',
         attributes: {
           'test_id': widget.link.testId,
           'paper_id': widget.link.paperId,
           'questions': report.questions.length,
-          'bytes': html.length,
+          'bytes': utf8.encode(html).length,
         },
       );
       if (!mounted) return;
@@ -192,7 +196,7 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
-        if (_rawHtml != null)
+        if (_rawHtml != null && _error == null)
           IconButton(
             tooltip: '导出原始数据',
             onPressed: _exportRawData,
@@ -217,6 +221,13 @@ class _SubjectReportScreenState extends State<SubjectReportScreen> {
                 Text(_error!, textAlign: TextAlign.center),
                 const SizedBox(height: 12),
                 M3EFilledButton(onPressed: _load, child: const Text('重试')),
+                if (_rawHtml != null) ...[
+                  const SizedBox(height: 4),
+                  M3ETextButton(
+                    onPressed: _exportRawData,
+                    child: const Text('导出上次成功加载的原始数据'),
+                  ),
+                ],
               ],
             ),
           ),

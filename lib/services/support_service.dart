@@ -190,6 +190,9 @@ class SupportService {
   static const String _widgetSessionKey = 'support_widget_session_id';
   static const int maxMessageLength = 8000;
 
+  /// 本地存储不可用时生成的 widget session id，在本次进程内复用。
+  String? _widgetSessionIdCache;
+
   Dio? _dio;
 
   /// 测试专用：替换底层 Dio（可挂内存适配器，避免真实网络请求）。
@@ -591,6 +594,9 @@ class SupportService {
   /// PostHog Widget API 要求该字段是合法 UUID；旧版本写入过非 UUID 值，
   /// 读取时校验并自动迁移，避免所有请求都返回 `invalid request data`。
   Future<String> _widgetSessionId() async {
+    // 本地存储曾经不可用时，优先复用内存中的临时 ID，保证会话内稳定。
+    final cached = _widgetSessionIdCache;
+    if (cached != null) return cached;
     try {
       final prefs = await SharedPreferences.getInstance();
       final existing = prefs.getString(_widgetSessionKey);
@@ -602,7 +608,7 @@ class SupportService {
       return created;
     } catch (_) {
       // 本地存储不可用时仍生成一个临时 ID：本次会话内可用，但重启后会丢失。
-      return newUuidV4();
+      return _widgetSessionIdCache ??= newUuidV4();
     }
   }
 

@@ -838,7 +838,7 @@ class XlfClient {
     AppLog.instance.debug(
       '$label响应',
       attributes: {
-        'bytes': html.length,
+        'bytes': utf8.encode(html).length,
         'duration_ms': DateTime.now().difference(startedAt).inMilliseconds,
         if (testId != null) 'test_id': testId,
         if (paperId != null) 'paper_id': paperId,

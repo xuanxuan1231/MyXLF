@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
@@ -77,20 +79,22 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
     );
     try {
       final html = await XlfClient.instance.fetchTotalReportHtml(widget.testId);
-      await OfflineCache.instance.write(cacheKey, html);
-      final report = Parsers.parseTotalReport(html);
+      // 先保存原始响应再解析：解析失败时也要能导出这次响应用于排查。
       RawCaptureStore.instance.add(
         kind: RawCaptureKind.totalReport,
         title: widget.examName,
         body: html,
         meta: {'test_id': widget.testId},
       );
+      final report = Parsers.parseTotalReport(html);
+      // 解析成功后才覆盖离线缓存，避免坏响应把上一份可用缓存冲掉。
+      await OfflineCache.instance.write(cacheKey, html);
       AppLog.instance.info(
         '已加载总分报告',
         attributes: {
           'test_id': widget.testId,
           'subjects': report.subjects.length,
-          'bytes': html.length,
+          'bytes': utf8.encode(html).length,
         },
       );
       if (!mounted) return;
@@ -215,7 +219,7 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
             onPressed: () => _openExport(_report!),
             icon: const Icon(Icons.ios_share_outlined),
           ),
-        if (_rawHtml != null)
+        if (_rawHtml != null && _error == null)
           IconButton(
             tooltip: '导出原始数据',
             onPressed: _exportRawData,
@@ -240,6 +244,13 @@ class _TotalReportScreenState extends State<TotalReportScreen> {
                 Text(_error!, textAlign: TextAlign.center),
                 const SizedBox(height: 12),
                 M3EFilledButton(onPressed: _load, child: const Text('重试')),
+                if (_rawHtml != null) ...[
+                  const SizedBox(height: 4),
+                  M3ETextButton(
+                    onPressed: _exportRawData,
+                    child: const Text('导出上次成功加载的原始数据'),
+                  ),
+                ],
               ],
             ),
           ),

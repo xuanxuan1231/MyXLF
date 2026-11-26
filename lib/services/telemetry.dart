@@ -61,6 +61,9 @@ class TelemetryService {
   /// PostHog 生成的随机 UUID）。
   String _deviceId = '';
 
+  /// 本地存储不可用时生成的兜底设备 ID，在本次进程内复用。
+  String? _fallbackDeviceIdCache;
+
   /// 应用版本信息，初始化时读取一次。
   PackageInfo? _packageInfo;
 
@@ -634,6 +637,9 @@ class TelemetryService {
   }
 
   Future<String> _fallbackDeviceId() async {
+    // 本地存储曾经不可用时，优先复用内存中的兜底值，保证会话内稳定。
+    final cached = _fallbackDeviceIdCache;
+    if (cached != null) return cached;
     try {
       final prefs = await SharedPreferences.getInstance();
       final existing = prefs.getString(_kFallbackDeviceIdKey);
@@ -643,7 +649,7 @@ class TelemetryService {
       return created;
     } catch (_) {
       // 本地存储不可用时返回临时值：本次会话内稳定，重启后会变化。
-      return newUuidV4();
+      return _fallbackDeviceIdCache ??= newUuidV4();
     }
   }
 
@@ -688,6 +694,7 @@ class TelemetryService {
     _configured = false;
     _consent = false;
     _deviceId = '';
+    _fallbackDeviceIdCache = null;
     _packageInfo = null;
     _openReported = false;
     _firstForeground = true;
