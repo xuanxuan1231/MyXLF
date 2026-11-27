@@ -20,10 +20,14 @@ class IcourseAttemptReviewScreen extends StatefulWidget {
     super.key,
     required this.quiz,
     required this.attempt,
+    this.attempts = const [],
   });
 
   final IcourseQuiz quiz;
   final IcourseQuizAttempt attempt;
+
+  /// 同一测验的全部已完成作答，用于在回顾页直接切换。
+  final List<IcourseQuizAttempt> attempts;
 
   @override
   State<IcourseAttemptReviewScreen> createState() =>
@@ -47,10 +51,34 @@ class _IcourseAttemptReviewScreenState
   bool _loading = true;
   String? _error;
   _QuestionFilter _filter = _QuestionFilter.all;
+  late IcourseQuizAttempt _attempt;
+  late List<IcourseQuizAttempt> _attempts;
 
   @override
   void initState() {
     super.initState();
+    _attempt = widget.attempt;
+    _attempts = widget.attempts.isEmpty
+        ? <IcourseQuizAttempt>[widget.attempt]
+        : [...widget.attempts];
+    if (!_attempts.any((attempt) => attempt.id == _attempt.id)) {
+      _attempts.insert(0, _attempt);
+    }
+    _attempts.sort((a, b) => a.attempt.compareTo(b.attempt));
+    _load();
+  }
+
+  void _switchAttempt(IcourseQuizAttempt attempt) {
+    if (attempt.id == _attempt.id) return;
+    setState(() {
+      _attempt = attempt;
+      _review = null;
+      _filter = _QuestionFilter.all;
+    });
+    IcourseTelemetry.attemptReviewOpened(
+      quizId: widget.quiz.id,
+      attemptId: attempt.id,
+    );
     _load();
   }
 
@@ -63,12 +91,12 @@ class _IcourseAttemptReviewScreenState
       body: review.rawJson,
       meta: {
         'quiz_id': widget.quiz.id.toString(),
-        'attempt_id': widget.attempt.id.toString(),
+        'attempt_id': _attempt.id.toString(),
       },
     );
     IcourseTelemetry.rawReviewExported(
       quizId: widget.quiz.id,
-      attemptId: widget.attempt.id,
+      attemptId: _attempt.id,
     );
     try {
       final outcome = await RawCaptureActions.share(capture);
@@ -101,11 +129,11 @@ class _IcourseAttemptReviewScreenState
     });
     try {
       final review = await IcourseClient.instance.fetchAttemptReview(
-        widget.attempt.id,
+        _attempt.id,
       );
       IcourseTelemetry.attemptReviewLoaded(
         quizId: widget.quiz.id,
-        attemptId: widget.attempt.id,
+        attemptId: _attempt.id,
         questionCount: review.questions.length,
         durationMs: DateTime.now().difference(startedAt).inMilliseconds,
       );
@@ -117,13 +145,13 @@ class _IcourseAttemptReviewScreenState
     } catch (e) {
       IcourseTelemetry.attemptReviewFailed(
         quizId: widget.quiz.id,
-        attemptId: widget.attempt.id,
+        attemptId: _attempt.id,
         reason: IcourseTelemetry.failureReason(e),
         errorType: IcourseTelemetry.errorType(e),
       );
       AppLog.instance.warn(
         '未来学苑作答回顾加载失败',
-        attributes: {'attempt_id': widget.attempt.id},
+        attributes: {'attempt_id': _attempt.id},
       );
       if (!mounted) return;
       setState(() {
@@ -157,8 +185,51 @@ class _IcourseAttemptReviewScreenState
   Widget build(BuildContext context) {
     return ReportPageScaffold(
       title: widget.quiz.name,
-      subtitle: '第 ${widget.attempt.attempt} 次作答 · 未来学苑 (Beta)',
+      subtitle:
+          '第 ${_attempt.attempt} 次作答'
+          '${_attempts.length > 1 ? ' · 共 ${_attempts.length} 次' : ''}'
+          ' · 未来学苑 (Beta)',
       actions: [
+        if (_attempts.length > 1)
+          PopupMenuButton<IcourseQuizAttempt>(
+            tooltip: '切换作答（共 ${_attempts.length} 次）',
+            icon: const Icon(Icons.swap_horiz_rounded),
+            onSelected: _switchAttempt,
+            itemBuilder: (context) => [
+              for (final attempt in _attempts)
+                PopupMenuItem<IcourseQuizAttempt>(
+                  value: attempt,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        attempt.id == _attempt.id
+                            ? Icons.check_circle_rounded
+                            : Icons.history_edu_outlined,
+                        size: 18,
+                        color: attempt.id == _attempt.id
+                            ? Theme.of(context).colorScheme.tertiary
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Text('第 ${attempt.attempt} 次作答'),
+                      if (attempt.sumGrades != null) ...[
+                        const SizedBox(width: 12),
+                        Text(
+                          _fmtScore(attempt.sumGrades),
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+            ],
+          ),
         if (context.isDesktopPlatform)
           IconButton(
             tooltip: '刷新作答回顾',
@@ -167,7 +238,7 @@ class _IcourseAttemptReviewScreenState
           ),
         if (_review?.rawJson.isNotEmpty == true)
           IconButton(
-            tooltip: '导出原始作答数据',
+            tooltip: '导出 API 原始 JSON',
             onPressed: _exportRawReview,
             icon: const Icon(Icons.data_object),
           ),
@@ -234,7 +305,7 @@ class _IcourseAttemptReviewScreenState
   Widget _buildSummaryCard(IcourseAttemptReview review) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final date = widget.attempt.finishedAt ?? widget.attempt.startedAt;
+    final date = _attempt.finishedAt ?? _attempt.startedAt;
     final grade = _formatGrade(review.grade, widget.quiz.grade);
     final questions = review.questions;
     final fullCount = questions.where((q) => q.isFullMark).length;
@@ -297,7 +368,7 @@ class _IcourseAttemptReviewScreenState
                 const SizedBox(width: 10),
                 _SummaryPill(
                   label: '状态',
-                  value: widget.attempt.isFinished ? '已完成' : '进行中',
+                  value: _attempt.isFinished ? '已完成' : '进行中',
                   icon: Icons.flag_outlined,
                 ),
               ],

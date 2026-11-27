@@ -23,7 +23,7 @@ extension RawCaptureKindLabel on RawCaptureKind {
     RawCaptureKind.examList => '考试列表',
     RawCaptureKind.totalReport => '总分报告',
     RawCaptureKind.subjectReport => '学科报告',
-    RawCaptureKind.icourseReview => '未来学苑作答回顾',
+    RawCaptureKind.icourseReview => '未来学苑作答回顾 JSON',
   };
 
   /// 文件名片段。
@@ -53,7 +53,7 @@ class RawCapture {
   /// 页面标题（考试名 / 学科名），便于用户辨认。
   final String title;
 
-  /// 平台返回的原始内容（HTML）。
+  /// 平台返回的原始内容：星立方为 HTML，未来学苑作答回顾为 API JSON。
   final String body;
 
   final DateTime capturedAt;
@@ -67,11 +67,15 @@ class RawCapture {
   /// 是否来自离线缓存。
   final bool fromCache;
 
-  String get mimeType => 'text/html; charset=utf-8';
+  /// 未来学苑作答回顾保存的是 Web Service 返回的 JSON，而不是页面 HTML。
+  bool get isJson => kind == RawCaptureKind.icourseReview;
+
+  String get mimeType =>
+      isJson ? 'application/json; charset=utf-8' : 'text/html; charset=utf-8';
 
   String get fileName {
     final stamp = _timestamp(capturedAt);
-    return 'myxlf-${kind.slug}-$stamp.html';
+    return 'myxlf-${kind.slug}-$stamp.${isJson ? 'json' : 'html'}';
   }
 
   String get sizeLabel {

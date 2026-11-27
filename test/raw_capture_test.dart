@@ -27,6 +27,19 @@ void main() {
     expect(capture.meta['test_id'], 't-1');
   });
 
+  test('未来学苑作答回顾按 JSON 导出，而不是伪装成 HTML', () {
+    final capture = RawCaptureStore.instance.add(
+      kind: RawCaptureKind.icourseReview,
+      title: '小测',
+      body: '{"grade": 1, "questions": []}',
+    );
+
+    expect(capture.isJson, isTrue);
+    expect(capture.fileName, startsWith('myxlf-icourse-review-'));
+    expect(capture.fileName, endsWith('.json'));
+    expect(capture.mimeType, contains('application/json'));
+  });
+
   test('相同类型且内容相同的快照只保留最新一份', () {
     final store = RawCaptureStore.instance;
     store.add(

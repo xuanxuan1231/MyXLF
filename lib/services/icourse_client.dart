@@ -286,13 +286,21 @@ class IcourseClient {
       'includepreviews': false,
     });
     final map = _requireMap(data, 'mod_quiz_get_user_attempts');
-    return [
+    final attempts = [
       for (final item in _asList(map['attempts']))
         if (item is Map) IcourseQuizAttempt.fromJson(_mapOf(item)),
     ];
+    // Moodle 不保证返回顺序；统一按第 1 次、第 2 次…排列，方便用户在
+    // 课程页和回顾页之间切换。
+    attempts.sort((a, b) => a.attempt.compareTo(b.attempt));
+    return attempts;
   }
 
   /// 一次作答的完整回顾（逐题内容、我的作答、正确答案、反馈）。
+  ///
+  /// 这是 Web Service 调用，不是抓取成绩页。Moodle 会在返回 JSON 的
+  /// `questions[].html`、`additionaldata[].content` 中嵌入已经渲染好的
+  /// 题目 HTML 片段，应用只解析这些片段，不依赖页面结构。
   Future<IcourseAttemptReview> fetchAttemptReview(int attemptId) async {
     final data = await _call('mod_quiz_get_attempt_review', {
       'attemptid': attemptId,

@@ -369,7 +369,7 @@ class _IcourseCourseScreenState extends State<IcourseCourseScreen> {
       return;
     }
     if (attempts.length == 1) {
-      _openAttempt(quiz, attempts.first);
+      _openAttempt(quiz, attempts.first, attempts);
       return;
     }
 
@@ -387,7 +387,7 @@ class _IcourseCourseScreenState extends State<IcourseCourseScreen> {
           padding: EdgeInsets.zero,
           onTap: (i) {
             Navigator.pop(ctx);
-            _openAttempt(quiz, attempts[i]);
+            _openAttempt(quiz, attempts[i], attempts);
           },
           children: [
             for (final attempt in attempts)
@@ -409,15 +409,22 @@ class _IcourseCourseScreenState extends State<IcourseCourseScreen> {
     );
   }
 
-  void _openAttempt(IcourseQuiz quiz, IcourseQuizAttempt attempt) {
+  void _openAttempt(
+    IcourseQuiz quiz,
+    IcourseQuizAttempt attempt,
+    List<IcourseQuizAttempt> attempts,
+  ) {
     IcourseTelemetry.attemptReviewOpened(
       quizId: quiz.id,
       attemptId: attempt.id,
     );
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) =>
-            IcourseAttemptReviewScreen(quiz: quiz, attempt: attempt),
+        builder: (_) => IcourseAttemptReviewScreen(
+          quiz: quiz,
+          attempt: attempt,
+          attempts: attempts,
+        ),
         settings: const RouteSettings(name: 'Icourse Attempt Review'),
       ),
     );
