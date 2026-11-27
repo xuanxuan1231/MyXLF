@@ -12,6 +12,9 @@ enum RawCaptureKind {
 
   /// 学科分析报告。
   subjectReport,
+
+  /// 未来学苑测验作答回顾。
+  icourseReview,
 }
 
 extension RawCaptureKindLabel on RawCaptureKind {
@@ -20,6 +23,7 @@ extension RawCaptureKindLabel on RawCaptureKind {
     RawCaptureKind.examList => '考试列表',
     RawCaptureKind.totalReport => '总分报告',
     RawCaptureKind.subjectReport => '学科报告',
+    RawCaptureKind.icourseReview => '未来学苑作答回顾',
   };
 
   /// 文件名片段。
@@ -27,6 +31,7 @@ extension RawCaptureKindLabel on RawCaptureKind {
     RawCaptureKind.examList => 'exam-list',
     RawCaptureKind.totalReport => 'total-report',
     RawCaptureKind.subjectReport => 'subject-report',
+    RawCaptureKind.icourseReview => 'icourse-review',
   };
 }
 

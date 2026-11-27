@@ -223,6 +223,150 @@ void main() {
     expect(find.text('共 10 场考试'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('首页可在星立方 / 未来学苑 / 混合数据源之间切换', (tester) async {
+    tester.view.physicalSize = const Size(390, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    SharedPreferences.setMockInitialValues({});
+    XlfClient.instance.init();
+
+    const html = '''
+    <html><body>
+      <select id="schoolYearId"><option value="">全部学年</option></select>
+      <select id="testSemester"><option value="">全部学期</option></select>
+      <div class="section_4">
+        <div class="text-wrapper_4"><span class="text_10">2026/11/01</span></div>
+        <div class="block_5">
+          <span class="text_15">英语期中考试</span>
+          <span class="text_16">科目：英语</span>
+          <div class="text-wrapper_5"><span class="text_17">报告版本：v1 2026-11-01 10:00:00</span></div>
+        </div>
+        <div class="block_6">
+          <a href="javascript:viewTest('/tqweb/report/NewStudentReport.a?showStudentScoreReport',1002);"></a>
+        </div>
+      </div>
+    </body></html>
+    ''';
+    XlfClient.instance.dio.httpClientAdapter = _FakeHttpAdapter(html);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: HomeScreen(
+          account: Account(username: '张三'),
+          loginResult: LoginResult(
+            schoolName: '测试中学',
+            className: '高一1班',
+            userId: '1',
+            schoolId: '2',
+            classId: '3',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('home-source-selector')), findsOneWidget);
+    expect(find.text('英语期中考试'), findsOneWidget);
+
+    // 未绑定未来学苑时展示绑定入口，而不是空白页。
+    await tester.tap(find.text('未来学苑'));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有绑定未来学苑'), findsOneWidget);
+    expect(find.text('绑定未来学苑'), findsOneWidget);
+
+    // 混合模式把星立方考试合并进时间线，并沿用星立方的排序控件。
+    await tester.tap(find.text('混合'));
+    await tester.pumpAndSettle();
+    expect(find.text('共 1 条记录'), findsOneWidget);
+    expect(find.text('英语期中考试'), findsOneWidget);
+    // 日期放在副标题里，右侧不再单独占一列。
+    expect(find.text('英语 · 2026/11/01'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-sort-toggle')), findsOneWidget);
+    expect(find.text('最新在前'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('home-sort-toggle')));
+    await tester.pump();
+    expect(find.text('最早在前'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('混合时间线沿用星立方的日期排序，日期显示在副标题', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    SharedPreferences.setMockInitialValues({});
+    XlfClient.instance.init();
+
+    const html = '''
+    <html><body>
+      <select id="schoolYearId"><option value="">全部学年</option></select>
+      <select id="testSemester"><option value="">全部学期</option></select>
+      <div class="section_4">
+        <div class="text-wrapper_4"><span class="text_10">2026/10/01</span></div>
+        <div class="block_5">
+          <span class="text_15">较早考试</span>
+          <span class="text_16">科目：数学</span>
+        </div>
+        <div class="block_6">
+          <a href="javascript:viewTest('/tqweb/report/NewStudentReport.a?showStudentScoreReport',1001);"></a>
+        </div>
+      </div>
+      <div class="section_4">
+        <div class="text-wrapper_4"><span class="text_10">2026/11/01</span></div>
+        <div class="block_5">
+          <span class="text_15">较新考试</span>
+          <span class="text_16">科目：英语</span>
+        </div>
+        <div class="block_6">
+          <a href="javascript:viewTest('/tqweb/report/NewStudentReport.a?showStudentScoreReport',1002);"></a>
+        </div>
+      </div>
+    </body></html>
+    ''';
+    XlfClient.instance.dio.httpClientAdapter = _FakeHttpAdapter(html);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: HomeScreen(
+          account: Account(username: '张三'),
+          loginResult: LoginResult(
+            schoolName: '测试中学',
+            className: '高一1班',
+            userId: '1',
+            schoolId: '2',
+            classId: '3',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('混合'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('数学 · 2026/10/01'), findsOneWidget);
+    expect(find.text('英语 · 2026/11/01'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('较新考试')).dy,
+      lessThan(tester.getTopLeft(find.text('较早考试')).dy),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('home-sort-toggle')));
+    await tester.pump();
+    expect(find.text('最早在前'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('较早考试')).dy,
+      lessThan(tester.getTopLeft(find.text('较新考试')).dy),
+    );
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _FakeHttpAdapter implements HttpClientAdapter {

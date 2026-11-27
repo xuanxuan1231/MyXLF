@@ -84,14 +84,16 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
 - 页面浏览（`$screen`）与功能使用情况；
 - 登录成功 / 失败（`Login Succeeded` / `Login Failed`：来源、耗时与失败原因分类，
   不含账号、密码、学校或班级）；
+- 未来学苑（Beta）功能使用情况（`Icourse *` 事件：数据源切换、登录、课程与
+  逐题回顾加载、原始数据导出；只含匿名编号、数量、耗时与错误分类）；
 - 崩溃报告与异常堆栈（`$exception`）；
 - 诊断日志（PostHog Logs，见下文「诊断日志」）；
 - 生命周期事件：`Application Installed` / `Application Updated` /
   `Application Opened` / `Application Backgrounded`（由应用自行采集）；
 - 前台使用时长（`Application Session Ended` 的 `duration_s` 属性）。
 
-**绝不会自动收集**：账号、姓名、学校 / 班级、密码与登录凭据、成绩与答卷内容、
-精确位置与通讯录。诊断日志只记录错误类型、页面路径、耗时、响应大小、题数、
+**绝不会自动收集**：账号、姓名、学校 / 班级、密码与登录凭据、未来学苑
+`wstoken`、课程名、题目、成绩与答卷内容、精确位置与通讯录。诊断日志只记录错误类型、页面路径、耗时、响应大小、题数、
 考试 / 试卷匿名编号等排查所需的元数据，不记录分数、答卷内容或账号身份。
 工单内容由用户主动填写，不属于自动收集（见 [`support.md`](support.md)）。
 
@@ -165,10 +167,46 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
 5. **登录**：`Login Succeeded` / `Login Failed` 事件与「登录成功」「登录失败」
    日志并存。成功率与耗时看事件（按 `source` 分组，可区分手动 / 自动 /
    切换账号 / 会话恢复），单次失败的上下文看日志。登出导致的中断只写日志，
-   不计入失败率。
+   不计入失败率。未来学苑 WebView 登录使用独立的
+   `Icourse Web Login Started` / `Icourse Web Login Succeeded` /
+   `Icourse Web Login Failed`，不要与星立方登录成功率混算。
 
 其余日志（工单操作、原始数据导出、缓存回退、DWR 解析等）没有对应事件，
 属于纯排查信息。
+
+## 未来学苑（Beta）事件
+
+未来学苑相关埋点集中在
+[`lib/services/icourse_telemetry.dart`](../lib/services/icourse_telemetry.dart)，
+统一以 `Icourse ` 前缀命名，便于和星立方事件区分。所有属性都是匿名编号、
+数量、耗时或稳定的错误分类，**不包含**课程名、测验名、题目、答案、分数、
+姓名或 `wstoken`。
+
+| 事件 | 触发时机 | 主要属性 |
+| --- | --- | --- |
+| `Icourse Source Selected` | 首页切换数据源 | `source` |
+| `Icourse Bind Screen Opened` | 打开未来学苑绑定 / 登录页 | `source`（home / account / account_management） |
+| `Icourse Web Login Started` | WebView 开始登录或重试 | — |
+| `Icourse Web Login Succeeded` | 换取 token 并写入安全存储成功 | `duration_ms` |
+| `Icourse Web Login Failed` | 登录页加载失败、token 无效或保存失败 | `duration_ms`、`reason`、`error_type` |
+| `Icourse Session Restored` | 启动 / 切号时恢复已有 token 成功 | `duration_ms` |
+| `Icourse Session Restore Failed` | token 失效或网络失败 | `reason`（auth / network） |
+| `Icourse Overview Loaded` | 首页课程与混合时间线加载成功 | `course_count`、`timeline_count`、`duration_ms` |
+| `Icourse Overview Failed` | 首页加载失败 | `reason`、`error_type` |
+| `Icourse Course Opened` | 打开课程详情 | `course_id` |
+| `Icourse Course Loaded` | 课程成绩与测验加载成功 | `course_id`、`grade_item_count`、`quiz_count`、`duration_ms` |
+| `Icourse Course Failed` | 课程详情加载失败 | `course_id`、`reason`、`error_type` |
+| `Icourse Quiz Attempts Loaded` | 测验作答列表加载成功 | `quiz_id`、`attempt_count`、`duration_ms` |
+| `Icourse Quiz Attempts Failed` | 作答列表加载失败 | `quiz_id`、`reason`、`error_type` |
+| `Icourse Attempt Review Opened` | 进入逐题回顾 | `quiz_id`、`attempt_id` |
+| `Icourse Attempt Review Loaded` | 逐题回顾加载成功 | `quiz_id`、`attempt_id`、`question_count`、`duration_ms` |
+| `Icourse Attempt Review Failed` | 逐题回顾加载失败 | `quiz_id`、`attempt_id`、`reason`、`error_type` |
+| `Icourse Raw Review Exported` | 导出原始作答 JSON | `quiz_id`、`attempt_id` |
+
+`reason` 由 `IcourseTelemetry.failureReason` 归一为 `auth` / `network` /
+`api` / `unknown`（认证异常优先使用平台错误码，如 `invalidtoken`），
+`error_type` 只记录异常类名。这样既能在 PostHog 中稳定聚合，也不会把服务端
+返回的课程或答卷文本带进事件属性。
 
 ## 原始数据导出
 
@@ -225,6 +263,8 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
 | 用户参与度 | `$screen` 事件、`Application Session Ended.duration_s` | Unique screens per user、平均 `duration_s`、Session 数 |
 | 登录成功率 | `Login Succeeded` / `Login Failed` 事件 | Insight：成功率 = `Login Succeeded` 数 ÷（两者之和），Breakdown `source` / `reason` |
 | 登录耗时 | `Login Succeeded.duration_ms` | Insight → Property value → 平均 `duration_ms`，Breakdown `source` |
+| 未来学苑登录成功率 | `Icourse Web Login Succeeded` / `Icourse Web Login Failed` | Insight：成功率，Breakdown `reason` / `error_type` |
+| 未来学苑课程与回顾成功率 | `Icourse Course Loaded` / `Icourse Course Failed`、`Icourse Attempt Review Loaded` / `Icourse Attempt Review Failed` | Insight：按 `course_id` / `reason` 聚合失败率与耗时 |
 | 活跃安装量 | 设备 ID（ANDROID_ID / IDFV）去重 | Insight → Unique users（按时间窗口） |
 | 版本分布 | 事件属性 `app_version` / `app_build` | Insight → Breakdown `app_version` |
 | 崩溃 / 异常堆栈 | `$exception` 事件 | [Error Tracking](https://us.posthog.com/error_tracking) 页 |
@@ -256,6 +296,7 @@ debug 构建完全不初始化 PostHog，也不会展示说明页或上报任何
 | `lib/services/telemetry.dart` | SDK 初始化、采集开关、事件 / 异常 / 日志上报、路由与生命周期观察者 |
 | `lib/services/app_log.dart` | 本机环形缓冲、日志级别、异常记录与 PostHog Logs 转发 |
 | `lib/services/log_sanitizer.dart` | 日志脱敏（密码、令牌、邮箱、手机号、路径等） |
+| `lib/services/icourse_telemetry.dart` | 未来学苑（Beta）事件与失败原因归一 |
 | `lib/services/raw_capture.dart` | 考试列表 / 报告原始响应快照与内存环形缓冲 |
 | `lib/services/raw_capture_export.dart` | 原始快照的保存 / 分享 / 打包，并写入诊断日志 |
 | `lib/services/file_actions.dart` | 文本文件保存 / 分享的平台条件导出 |

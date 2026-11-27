@@ -5,6 +5,7 @@ import 'package:m3e_core/m3e_core.dart';
 import '../models/models.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_top_bar.dart';
 import '../widgets/session_recovery.dart';
 import 'main_shell.dart';
 
@@ -65,9 +66,11 @@ class _LoginScreenState extends State<LoginScreen> {
       ).showSnackBar(const SnackBar(content: Text('请输入用户名和密码')));
       return;
     }
+
     setState(() => _submitting = true);
     try {
       final result = await XlfClient.instance.login(username, password);
+
       final account = Account(
         username: username,
         password: password,
@@ -102,95 +105,121 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('登录')),
-      // AutofillGroup 是 Android / iOS 自动填充的前提，缺少它时系统不会把这两个输入框
-      // 视为同一组账号密码，也不会触发填充与保存提示。
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            // 桌面端表单保持在可读宽度内，避免输入框被拉满整个窗口。
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: AutofillGroup(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 8),
-                    Center(
-                      child: Image.asset(
-                        Theme.of(context).brightness == Brightness.dark
-                            ? 'assets/images/logo_dark.png'
-                            : 'assets/images/logo_light.png',
-                        width: 96,
-                        height: 96,
-                        semanticLabel: 'MyXLF',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'MyXLF',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '学生成绩分析报告',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    TextField(
-                      controller: _usernameController,
-                      autofillHints: const [AutofillHints.username],
-                      textInputAction: TextInputAction.next,
-                      // 桌面端进入登录页后直接聚焦用户名，省去一次点击。
-                      autofocus: context.isDesktopPlatform,
-                      decoration: const InputDecoration(
-                        labelText: '用户名',
-                        hintText: '学生姓名或手机号',
-                        prefixIcon: Icon(Icons.person_outline),
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _passwordController,
-                      obscureText: _obscure,
-                      autofillHints: const [AutofillHints.password],
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (_) => _submit(),
-                      decoration: InputDecoration(
-                        labelText: '密码',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscure ? Icons.visibility_off : Icons.visibility,
+      body: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          AppTopBar(
+            title: '登录',
+            compact: true,
+            leading: Navigator.of(context).canPop() ? const BackButton() : null,
+          ),
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Padding(
+              padding: centeredPadding(
+                MediaQuery.sizeOf(context).width,
+                maxWidth: AppLayout.contentMaxWidth,
+                padding: EdgeInsets.fromLTRB(
+                  24,
+                  24,
+                  24,
+                  24 + context.floatingNavigationClearance,
+                ),
+              ),
+              child: Center(
+                // AutofillGroup 是 Android / iOS 自动填充的前提，缺少它时系统
+                // 不会把这两个输入框视为同一组账号密码，也不会触发填充与保存提示。
+                child: ConstrainedBox(
+                  // 桌面端表单保持在可读宽度内，避免输入框被拉满整个窗口。
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: AutofillGroup(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Center(
+                          child: Image.asset(
+                            Theme.of(context).brightness == Brightness.dark
+                                ? 'assets/images/logo_dark.png'
+                                : 'assets/images/logo_light.png',
+                            width: 96,
+                            height: 96,
+                            semanticLabel: 'MyXLF',
                           ),
-                          onPressed: () => setState(() => _obscure = !_obscure),
                         ),
-                      ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'MyXLF',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '学生成绩分析报告',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                        const SizedBox(height: 32),
+                        TextField(
+                          controller: _usernameController,
+                          autofillHints: const [AutofillHints.username],
+                          textInputAction: TextInputAction.next,
+                          // 桌面端进入登录页后直接聚焦用户名，省去一次点击。
+                          autofocus: context.isDesktopPlatform,
+                          decoration: const InputDecoration(
+                            labelText: '用户名',
+                            hintText: '学生姓名或手机号',
+                            prefixIcon: Icon(Icons.person_outline),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _passwordController,
+                          obscureText: _obscure,
+                          autofillHints: const [AutofillHints.password],
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => _submit(),
+                          decoration: InputDecoration(
+                            labelText: '密码',
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscure
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                              ),
+                              onPressed: () =>
+                                  setState(() => _obscure = !_obscure),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '登录后可在账户页使用门户或 Moodle 账号绑定未来学苑。',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                        const SizedBox(height: 24),
+                        M3EFilledButton(
+                          onPressed: _submitting ? null : _submit,
+                          size: M3EButtonSize.md,
+                          child: _submitting
+                              ? const M3ECircularProgressIndicator(
+                                  size: 20,
+                                  strokeWidth: 2,
+                                )
+                              : const Text('登录'),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 24),
-                    M3EFilledButton(
-                      onPressed: _submitting ? null : _submit,
-                      size: M3EButtonSize.md,
-                      child: _submitting
-                          ? const M3ECircularProgressIndicator(
-                              size: 20,
-                              strokeWidth: 2,
-                            )
-                          : const Text('登录'),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }

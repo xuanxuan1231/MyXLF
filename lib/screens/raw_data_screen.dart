@@ -240,6 +240,7 @@ class RawDataScreen extends StatelessWidget {
     RawCaptureKind.examList => Icons.list_alt_outlined,
     RawCaptureKind.totalReport => Icons.assessment_outlined,
     RawCaptureKind.subjectReport => Icons.book_outlined,
+    RawCaptureKind.icourseReview => Icons.quiz_outlined,
   };
 
   Future<void> _preview(BuildContext context, RawCapture capture) async {

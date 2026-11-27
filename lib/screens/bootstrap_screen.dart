@@ -1,11 +1,15 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
+import '../models/icourse_models.dart';
 import '../models/models.dart';
 import '../services/account_store.dart';
 import '../services/app_log.dart';
+import '../services/icourse_client.dart';
+import '../services/icourse_telemetry.dart';
 import '../services/telemetry.dart';
 import '../services/xlf_client.dart';
+import '../widgets/session_recovery.dart';
 import 'login_screen.dart';
 import 'main_shell.dart';
 import 'privacy_consent_screen.dart';
@@ -89,8 +93,38 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
         defaultAccount.password,
         source: LoginSource.auto,
       );
+      final icourse = await _restoreIcourse(defaultAccount);
+      final hadIcourseToken = defaultAccount.canRestoreIcourse;
+      final icourseAuthFailure =
+          icourse == null &&
+          hadIcourseToken &&
+          IcourseClient.instance.lastErrorIsAuth;
+      if (icourseAuthFailure) {
+        // token 已失效：从安全存储删除，避免每次启动都重试。
+        await AccountStore.instance.clearIcourseToken(defaultAccount.username);
+      }
       if (!mounted) return;
-      await enterShell(context, defaultAccount, result);
+      final enriched = defaultAccount.copyWith(
+        icourseToken: icourseAuthFailure ? '' : defaultAccount.icourseToken,
+        icourseUserId: icourse?.userId.toString(),
+        icourseFullName: icourse?.fullName,
+        icourseSiteUrl: icourse?.siteUrl,
+        icourseUserPictureUrl: icourse?.userPictureUrl,
+        icourseConnected: icourseAuthFailure
+            ? false
+            : (icourse != null || defaultAccount.icourseConnected),
+      );
+      await enterShell(context, enriched, result);
+      if (hadIcourseToken && icourse == null) {
+        appScaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text(
+              IcourseClient.instance.lastError ?? '未来学苑自动登录失败，可在账户页重新登录',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } on XlfAccountLockedException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -116,6 +150,28 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
         _connectionError = e.toString();
       });
     }
+  }
+
+  /// 自动恢复 icourse 会话；未绑定或 token 失效时返回 null，不影响星立方登录。
+  Future<IcourseProfile?> _restoreIcourse(Account account) async {
+    if (!account.canRestoreIcourse) {
+      IcourseClient.instance.clearSession();
+      return null;
+    }
+    final startedAt = DateTime.now();
+    final profile = await IcourseClient.instance.restoreFromToken(
+      account.icourseToken,
+    );
+    if (profile != null) {
+      IcourseTelemetry.sessionRestored(
+        durationMs: DateTime.now().difference(startedAt).inMilliseconds,
+      );
+    } else {
+      IcourseTelemetry.sessionRestoreFailed(
+        reason: IcourseClient.instance.lastErrorIsAuth ? 'auth' : 'network',
+      );
+    }
+    return profile;
   }
 
   void _goto(Widget screen, String routeName) {

@@ -80,6 +80,7 @@ class _MainShellState extends State<MainShell> {
   static const List<String> _tabScreens = ['Home', 'Trend', 'Account'];
 
   int _index = 0;
+  int _icourseRevision = 0;
   late Account _account = widget.account;
   late LoginResult _loginResult = widget.loginResult;
 
@@ -108,6 +109,14 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
+  /// 账户页绑定 / 解绑 icourse 后同步当前账号，让首页立即重新加载。
+  void _updateAccount(Account account) {
+    setState(() {
+      _account = account;
+      _icourseRevision++;
+    });
+  }
+
   /// 切换 Tab 并上报页面浏览。
   void _selectTab(int index) {
     if (index == _index) return;
@@ -129,9 +138,13 @@ class _MainShellState extends State<MainShell> {
         index: _index,
         children: [
           HomeScreen(
-            key: ValueKey('home_${_account.username}'),
+            key: ValueKey(
+              'home_${_account.username}_${_account.icourseUsername}_'
+              '${_account.icourseConnected}_$_icourseRevision',
+            ),
             account: _account,
             loginResult: _loginResult,
+            onAccountUpdated: _updateAccount,
           ),
           // 趋势页只在首次选中时请求数据，避免启动时额外加载十几份报告。
           TrendScreen(
@@ -144,6 +157,7 @@ class _MainShellState extends State<MainShell> {
             loginResult: _loginResult,
             onSwitchAccount: _switchAccount,
             onDefaultChanged: _changeDefault,
+            onAccountUpdated: _updateAccount,
           ),
         ],
       ),
