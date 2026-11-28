@@ -64,6 +64,9 @@ class AccountStore {
 
   static const String _accountsKey = 'xlf_accounts';
 
+  /// icourse token 按「星立方用户名」隔离，避免与其他账号串用。
+  static String _icourseTokenKey(String username) => 'icourse-token:$username';
+
   final PasswordVault _vault;
 
   List<Account> _accounts = [];
@@ -129,6 +132,16 @@ class AccountStore {
         _recordStorageError(e, '读取');
       }
 
+      // icourse token 使用独立键名；和密码一样只保存在安全存储中。
+      String? icourseToken;
+      if (account.icourseUsername.isNotEmpty || account.icourseConnected) {
+        try {
+          icourseToken = await _vault.read(_icourseTokenKey(account.username));
+        } catch (e) {
+          _recordStorageError(e, '读取');
+        }
+      }
+
       if (stored != null && stored.isNotEmpty) {
         resolvedPasswords[account.username] = stored;
         if (legacy.isNotEmpty) {
@@ -152,7 +165,10 @@ class AccountStore {
       }
 
       _accounts.add(
-        account.copyWith(password: resolvedPasswords[account.username] ?? ''),
+        account.copyWith(
+          password: resolvedPasswords[account.username] ?? '',
+          icourseToken: icourseToken ?? '',
+        ),
       );
     }
 
@@ -190,6 +206,16 @@ class AccountStore {
         // 不把新密码写入 shared_preferences；当前会话仍可使用内存中的密码。
       }
     }
+    if (account.icourseToken.isNotEmpty) {
+      try {
+        await _vault.write(
+          _icourseTokenKey(account.username),
+          account.icourseToken,
+        );
+      } catch (e) {
+        _recordStorageError(e, '保存');
+      }
+    }
 
     final idx = _accounts.indexWhere((a) => a.username == account.username);
     // 首次添加视为默认账号；更新已有账号时保留其默认标记，
@@ -200,10 +226,22 @@ class AccountStore {
           : (account.isDefault || (idx >= 0 && _accounts[idx].isDefault)),
     );
     if (idx >= 0) {
-      _accounts[idx] = _accounts[idx].copyWith(
-        password: saved.password.isEmpty
-            ? _accounts[idx].password
-            : saved.password,
+      final old = _accounts[idx];
+      // icourse 换绑到另一个用户时，旧的头像 / 姓名不能继续沿用。
+      final rebind =
+          saved.icourseUserId != null &&
+          old.icourseUserId != null &&
+          saved.icourseUserId != old.icourseUserId;
+      var updated = old.copyWith(
+        password: saved.password.isEmpty ? old.password : saved.password,
+        icourseToken: saved.icourseToken.isEmpty
+            ? old.icourseToken
+            : saved.icourseToken,
+        icourseUsername: saved.icourseUsername.isEmpty
+            ? old.icourseUsername
+            : saved.icourseUsername,
+        icourseConnected: saved.icourseConnected,
+        clearIcourseProfile: rebind,
         schoolName: saved.schoolName,
         className: saved.className,
         userId: saved.userId,
@@ -212,6 +250,15 @@ class AccountStore {
         isDefault: saved.isDefault,
         lastLoginAt: saved.lastLoginAt,
       );
+      updated = updated.copyWith(
+        icourseUserId: saved.icourseUserId,
+        icourseFullName: saved.icourseFullName,
+        icourseSiteUrl: saved.icourseSiteUrl,
+        icourseUserPictureUrl: saved.icourseUserPictureUrl,
+      );
+      _accounts[idx] = updated;
+      await _save();
+      return updated;
     } else {
       _accounts.add(saved);
     }
@@ -232,6 +279,7 @@ class AccountStore {
     _legacyPasswords.remove(username);
     try {
       await _vault.delete(username);
+      await _vault.delete(_icourseTokenKey(username));
     } catch (e) {
       _recordStorageError(e, '删除');
     }
@@ -277,6 +325,82 @@ class AccountStore {
       lastLoginAt: DateTime.now().millisecondsSinceEpoch,
     );
     await _save();
+  }
+
+  /// 绑定 icourse：保存 Web Service token 和站点资料。
+  ///
+  /// token 直接写入安全存储，后续启动无需再次输入门户密码。
+  /// 返回更新后的账号；找不到该星立方账号时返回 null。
+  Future<Account?> bindIcourseToken(
+    String username, {
+    required String token,
+    required String icourseUsername,
+    String? icourseUserId,
+    String? icourseFullName,
+    String? icourseSiteUrl,
+    String? icourseUserPictureUrl,
+  }) async {
+    await load();
+    final idx = _accounts.indexWhere((a) => a.username == username);
+    if (idx < 0) return null;
+    try {
+      await _vault.write(_icourseTokenKey(username), token);
+    } catch (e) {
+      _recordStorageError(e, '保存');
+      return null;
+    }
+    final updated = _accounts[idx].copyWith(
+      icourseUsername: icourseUsername,
+      icourseToken: token,
+      icourseUserId: icourseUserId,
+      icourseFullName: icourseFullName,
+      icourseSiteUrl: icourseSiteUrl,
+      icourseUserPictureUrl: icourseUserPictureUrl,
+      icourseConnected: true,
+    );
+    _accounts[idx] = updated;
+    await _save();
+    return updated;
+  }
+
+  /// 清除已失效的 icourse token，但保留用户名和头像等资料。
+  ///
+  /// 用于服务端撤销 token 后展示「需重新登录」，同时避免每次启动都拿
+  /// 失效 token 重试。返回更新后的账号；找不到该账号时返回 null。
+  Future<Account?> clearIcourseToken(String username) async {
+    await load();
+    final idx = _accounts.indexWhere((a) => a.username == username);
+    if (idx < 0) return null;
+    try {
+      await _vault.delete(_icourseTokenKey(username));
+    } catch (e) {
+      _recordStorageError(e, '删除');
+    }
+    final updated = _accounts[idx].copyWith(
+      icourseToken: '',
+      icourseConnected: false,
+    );
+    _accounts[idx] = updated;
+    await _save();
+    return updated;
+  }
+
+  /// 解绑某账号的 icourse：删除安全存储中的 token 并清空绑定信息。
+  ///
+  /// 返回更新后的账号；找不到该账号时返回 null。
+  Future<Account?> clearIcourse(String username) async {
+    await load();
+    final idx = _accounts.indexWhere((a) => a.username == username);
+    if (idx < 0) return null;
+    try {
+      await _vault.delete(_icourseTokenKey(username));
+    } catch (e) {
+      _recordStorageError(e, '删除');
+    }
+    final updated = _accounts[idx].copyWith(clearIcourse: true);
+    _accounts[idx] = updated;
+    await _save();
+    return updated;
   }
 
   /// 更新某账号的最近登录时间。

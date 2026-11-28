@@ -1,9 +1,13 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
+import '../models/icourse_models.dart';
 import '../models/models.dart';
+import '../services/account_store.dart';
 import '../services/app_log.dart';
 import '../services/exam_search.dart';
+import '../services/icourse_client.dart';
+import '../services/icourse_telemetry.dart';
 import '../services/log_sanitizer.dart';
 import '../services/offline_cache.dart';
 import '../services/parsers.dart';
@@ -12,19 +16,37 @@ import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_pull_to_refresh.dart';
 import '../widgets/app_top_bar.dart';
+import '../widgets/beta_notice.dart';
 import '../widgets/offline_notice.dart';
+import 'icourse_web_login_screen.dart';
+import 'icourse_course_screen.dart';
 import 'total_report_screen.dart';
 
-/// 首页：考试列表 + 学年/学期筛选。
+/// 首页数据源。
+enum _HomeSource {
+  xlf('星立方'),
+  icourse('未来学苑'),
+  mixed('混合');
+
+  const _HomeSource(this.label);
+
+  final String label;
+}
+
+/// 首页：星立方考试列表、icourse 课程成绩与混合时间线。
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.account,
     required this.loginResult,
+    this.onAccountUpdated,
   });
 
   final Account account;
   final LoginResult loginResult;
+
+  /// 首页直接绑定 icourse 后同步最新账号。
+  final void Function(Account account)? onAccountUpdated;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -43,6 +65,13 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _fromCache = false;
   DateTime? _cachedAt;
 
+  _HomeSource _source = _HomeSource.xlf;
+  IcourseOverview? _icourseOverview;
+  List<IcourseTimelineEntry> _icourseTimeline = const [];
+  bool _icourseLoading = false;
+  bool _icourseAuthError = false;
+  String? _icourseError;
+
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   final Set<String> _selectedSubjectKeys = {};
@@ -59,6 +88,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _load();
+    if (widget.account.hasIcourseAccount) {
+      _loadIcourse();
+    }
   }
 
   @override
@@ -239,6 +271,161 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// 加载 icourse 课程与混合时间线。
+  Future<void> _loadIcourse({bool force = false}) async {
+    if (!mounted) return;
+    final startedAt = DateTime.now();
+    if (!widget.account.hasIcourseAccount) {
+      if (!mounted) return;
+      setState(() {
+        _icourseOverview = null;
+        _icourseTimeline = const [];
+        _icourseError = null;
+        _icourseAuthError = false;
+        _icourseLoading = false;
+      });
+      return;
+    }
+    setState(() {
+      _icourseLoading = true;
+      _icourseError = null;
+      _icourseAuthError = false;
+    });
+    try {
+      final needsRestore =
+          !IcourseClient.instance.hasSession ||
+          (widget.account.icourseUserId != null &&
+              IcourseClient.instance.profile?.userId.toString() !=
+                  widget.account.icourseUserId);
+      if (needsRestore) {
+        final restoreStartedAt = DateTime.now();
+        final profile = await IcourseClient.instance.restoreFromToken(
+          widget.account.icourseToken,
+        );
+        if (profile == null) {
+          IcourseTelemetry.sessionRestoreFailed(
+            reason: IcourseClient.instance.lastErrorIsAuth ? 'auth' : 'network',
+          );
+          final isAuth = IcourseClient.instance.lastErrorIsAuth;
+          if (isAuth && widget.account.canRestoreIcourse) {
+            final cleared = await AccountStore.instance.clearIcourseToken(
+              widget.account.username,
+            );
+            if (cleared != null) widget.onAccountUpdated?.call(cleared);
+          }
+          final message = IcourseClient.instance.lastError ?? '未来学苑尚未登录，请重新登录';
+          if (isAuth) throw IcourseAuthException(message);
+          throw IcourseException(message);
+        }
+        IcourseTelemetry.sessionRestored(
+          durationMs: DateTime.now()
+              .difference(restoreStartedAt)
+              .inMilliseconds,
+        );
+      }
+      final overview = await IcourseClient.instance.fetchOverview(force: force);
+      final timeline = await IcourseClient.instance.fetchTimeline(force: force);
+      if (!mounted) return;
+      IcourseTelemetry.overviewLoaded(
+        courseCount: overview.courses.length,
+        timelineCount: timeline.length,
+        durationMs: DateTime.now().difference(startedAt).inMilliseconds,
+      );
+      setState(() {
+        _icourseOverview = overview;
+        _icourseTimeline = timeline;
+        _icourseLoading = false;
+      });
+    } catch (e) {
+      IcourseTelemetry.overviewFailed(
+        reason: IcourseTelemetry.failureReason(e),
+        errorType: IcourseTelemetry.errorType(e),
+      );
+      AppLog.instance.warn(
+        '未来学苑首页加载失败',
+        attributes: {'error': sanitizeExceptionText('$e')},
+      );
+      if (!mounted) return;
+      setState(() {
+        _icourseError = e.toString();
+        _icourseAuthError = e is IcourseAuthException;
+        _icourseLoading = false;
+      });
+    }
+  }
+
+  /// 下拉刷新 / 顶栏刷新：只刷新当前数据源；混合模式同时刷新两边。
+  Future<void> _refreshActive() async {
+    switch (_source) {
+      case _HomeSource.xlf:
+        await _load();
+      case _HomeSource.icourse:
+        await _loadIcourse(force: true);
+      case _HomeSource.mixed:
+        await Future.wait([_load(), _loadIcourse(force: true)]);
+    }
+  }
+
+  bool get _activeBusy => switch (_source) {
+    _HomeSource.xlf => _loading,
+    _HomeSource.icourse => _icourseLoading,
+    _HomeSource.mixed => _loading || _icourseLoading,
+  };
+
+  void _retryActiveSource() {
+    switch (_source) {
+      case _HomeSource.xlf:
+        _load();
+      case _HomeSource.icourse:
+        _loadIcourse(force: true);
+      case _HomeSource.mixed:
+        _refreshActive();
+    }
+  }
+
+  void _selectSource(_HomeSource source) {
+    if (source == _source) return;
+    IcourseTelemetry.sourceSelected(source.name);
+    setState(() => _source = source);
+    if (source != _HomeSource.xlf &&
+        widget.account.hasIcourseAccount &&
+        _icourseOverview == null &&
+        !_icourseLoading) {
+      _loadIcourse();
+    }
+  }
+
+  void _openIcourseCourse(IcourseCourse course) {
+    IcourseTelemetry.courseOpened(courseId: course.id);
+    final grade = _icourseOverview?.gradeFor(course.id);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => IcourseCourseScreen(course: course, courseGrade: grade),
+        settings: const RouteSettings(name: 'Icourse Course'),
+      ),
+    );
+  }
+
+  void _openIcourseEntry(IcourseTimelineEntry entry) {
+    final course = entry.course;
+    if (course != null) {
+      _openIcourseCourse(course);
+    }
+  }
+
+  Future<void> _openIcourseBind() async {
+    IcourseTelemetry.bindScreenOpened('home');
+    final updated = await Navigator.of(context).push<Account>(
+      MaterialPageRoute(
+        builder: (_) => IcourseWebLoginScreen(account: widget.account),
+        settings: const RouteSettings(name: 'Icourse Login'),
+      ),
+    );
+    if (updated == null || !mounted) return;
+    widget.onAccountUpdated?.call(updated);
+    await _loadIcourse(force: true);
+  }
+
   void _openExam(Exam exam) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -355,40 +542,133 @@ class _HomeScreenState extends State<HomeScreen> {
         ? widget.loginResult.schoolName
         : (widget.account.schoolName ?? '');
     final visibleExams = _visibleExams;
+    final title = switch (_source) {
+      _HomeSource.xlf => '星立方成绩查询',
+      _HomeSource.icourse => '未来学苑课程成绩',
+      _HomeSource.mixed => '成绩时间线',
+    };
+    // 未来学苑课程成绩页顶部只保留标题，副标题留空；混合时间线仍显示学校。
+    final subtitle = _source == _HomeSource.icourse ? '' : schoolName;
     return Scaffold(
       // 整页只保留一个滚动区域：顶栏、搜索筛选和考试列表一起滚动，
       // 列表本身不再套独立的滚动视图。
       body: AppPullToRefresh(
-        onRefresh: _load,
+        onRefresh: _refreshActive,
         child: CustomScrollView(
           // 考试较少时也允许下拉刷新。
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             AppTopBar(
-              title: '星立方成绩查询',
-              subtitle: schoolName.isEmpty ? null : schoolName,
+              title: title,
+              subtitle: subtitle.isEmpty ? null : subtitle,
               actions: [
                 // 桌面端没有下拉刷新手势，提供显式刷新入口。
                 if (context.isDesktopPlatform)
                   IconButton(
-                    tooltip: '刷新考试列表',
-                    onPressed: _loading ? null : _load,
+                    tooltip: '刷新当前数据源',
+                    onPressed: _activeBusy ? null : _refreshActive,
                     icon: const Icon(Icons.refresh),
                   ),
               ],
             ),
-            if (_fromCache && _cachedAt != null)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: ContentWidth(
-                    maxWidth: AppLayout.contentMaxWidth,
-                    child: OfflineNotice(savedAt: _cachedAt!, onRetry: _load),
+            SliverToBoxAdapter(child: _buildSourceSelector()),
+            if (_source == _HomeSource.xlf) ...[
+              if (_fromCache && _cachedAt != null)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: ContentWidth(
+                      maxWidth: AppLayout.contentMaxWidth,
+                      child: OfflineNotice(savedAt: _cachedAt!, onRetry: _load),
+                    ),
                   ),
                 ),
+              SliverToBoxAdapter(child: _buildFilterBar(visibleExams.length)),
+              ..._buildContentSlivers(visibleExams),
+            ] else if (_source == _HomeSource.icourse) ...[
+              SliverToBoxAdapter(child: _buildHomeBetaNotice()),
+              ..._buildIcourseSlivers(),
+            ] else
+              ..._buildMixedSlivers(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 未来学苑 Beta 提示。放在搜索/排序条之后，切换星立方与混合时
+  /// 搜索框和排序控件的位置保持不变。
+  Widget _buildHomeBetaNotice() {
+    return LayoutBuilder(
+      builder: (context, constraints) => Padding(
+        padding: centeredPadding(
+          constraints.maxWidth,
+          maxWidth: AppLayout.contentMaxWidth,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        ),
+        child: const BetaNoticeBanner(
+          message: '未来学苑数据与课程 / 测验回顾仍在 Beta 测试中，显示效果可能调整。',
+        ),
+      ),
+    );
+  }
+
+  /// 数据源切换：星立方 / icourse / 混合时间线。
+  Widget _buildSourceSelector() {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final sources = _HomeSource.values;
+
+    return LayoutBuilder(
+      builder: (context, constraints) => Padding(
+        padding: centeredPadding(
+          constraints.maxWidth,
+          maxWidth: AppLayout.contentMaxWidth,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+        ),
+        child: M3ESegmentedRow(
+          key: const ValueKey('home-source-selector'),
+          outerRadius: 20,
+          innerRadius: 4,
+          gap: 2,
+          padding: EdgeInsets.zero,
+          selectedColor: scheme.primaryContainer,
+          selectedRadius: 16,
+          isSelected: (index) => sources[index] == _source,
+          onTap: (index) => _selectSource(sources[index]),
+          semanticLabelBuilder: (index) => '${sources[index].label}数据源',
+          children: [
+            for (final source in sources)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 10,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.max,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        source.label,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.labelLarge?.copyWith(
+                          color: source == _source
+                              ? scheme.onPrimaryContainer
+                              : scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (source != _HomeSource.xlf) ...[
+                      const SizedBox(width: 4),
+                      const BetaTag(compact: true),
+                    ],
+                  ],
+                ),
               ),
-            SliverToBoxAdapter(child: _buildFilterBar(visibleExams.length)),
-            ..._buildContentSlivers(visibleExams),
           ],
         ),
       ),
@@ -771,6 +1051,629 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
   }
 
+  // ---- icourse 数据源 ----
+
+  /// icourse 课程与最近成绩。
+  List<Widget> _buildIcourseSlivers() {
+    if (!widget.account.hasIcourseAccount) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: _buildIcourseUnboundState(),
+        ),
+      ];
+    }
+
+    final overview = _icourseOverview;
+    if (_icourseLoading && overview == null) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: M3ECircularProgressIndicator()),
+        ),
+      ];
+    }
+    if (_icourseError != null && overview == null) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: _icourseAuthError
+              ? _buildIcourseAuthErrorState()
+              : _buildErrorState(_icourseError!),
+        ),
+      ];
+    }
+    if (overview == null) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: M3ECircularProgressIndicator()),
+        ),
+      ];
+    }
+
+    final courses = overview.courses;
+    final timeline = _icourseTimeline;
+    return [
+      if (_icourseError != null)
+        SliverToBoxAdapter(child: _buildIcourseNotice(_icourseError!)),
+      if (overview.gradeError != null)
+        SliverToBoxAdapter(child: _buildIcourseNotice(overview.gradeError!)),
+      _buildSectionLabelSliver('课程'),
+      if (courses.isEmpty)
+        const SliverToBoxAdapter(child: _HomeEmptyCard(text: '这门账号下暂无课程'))
+      else
+        SliverLayoutBuilder(
+          builder: (context, constraints) => SliverM3ESegmentedList(
+            itemCount: courses.length,
+            padding: EdgeInsets.zero,
+            gap: 2,
+            outerRadius: 24,
+            margin: centeredPadding(
+              constraints.crossAxisExtent,
+              maxWidth: AppLayout.contentMaxWidth,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            ),
+            onTap: (i) => _openIcourseCourse(courses[i]),
+            itemBuilder: (_, i) => _buildIcourseCourseItem(courses[i]),
+          ),
+        ),
+      if (timeline.isNotEmpty) ...[
+        _buildSectionLabelSliver('最近成绩'),
+        SliverLayoutBuilder(
+          builder: (context, constraints) => SliverM3ESegmentedList(
+            itemCount: timeline.length,
+            padding: EdgeInsets.zero,
+            gap: 2,
+            outerRadius: 24,
+            margin: centeredPadding(
+              constraints.crossAxisExtent,
+              maxWidth: AppLayout.contentMaxWidth,
+              padding: EdgeInsets.fromLTRB(
+                16,
+                0,
+                16,
+                24 + context.floatingNavigationClearance,
+              ),
+            ),
+            onTap: (i) => _openIcourseEntry(timeline[i]),
+            itemBuilder: (_, i) => _buildTimelineItem(timeline[i]),
+          ),
+        ),
+      ] else
+        SliverToBoxAdapter(
+          child: SizedBox(height: 24 + context.floatingNavigationClearance),
+        ),
+    ];
+  }
+
+  /// 混合时间线：星立方考试 + icourse 成绩项，排序与筛选条与星立方一致。
+  List<Widget> _buildMixedSlivers() {
+    final entries = _mixedEntries;
+    final filtered = _filteredMixedEntries;
+    return [
+      SliverToBoxAdapter(
+        child: _buildMixedFilterBar(entries.length, filtered.length),
+      ),
+      SliverToBoxAdapter(child: _buildHomeBetaNotice()),
+      if (_loading && _icourseLoading && entries.isEmpty)
+        const SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: M3ECircularProgressIndicator()),
+        )
+      else if (entries.isEmpty)
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: _buildMixedEmptyState(),
+        )
+      else if (filtered.isEmpty)
+        SliverFillRemaining(hasScrollBody: false, child: _buildNoResults())
+      else
+        SliverLayoutBuilder(
+          builder: (context, constraints) => SliverM3ESegmentedList(
+            itemCount: filtered.length,
+            padding: EdgeInsets.zero,
+            gap: 2,
+            outerRadius: 24,
+            margin: centeredPadding(
+              constraints.crossAxisExtent,
+              maxWidth: AppLayout.contentMaxWidth,
+              padding: EdgeInsets.fromLTRB(
+                16,
+                0,
+                16,
+                24 + context.floatingNavigationClearance,
+              ),
+            ),
+            onTap: (i) => _openMixedEntry(filtered[i]),
+            itemBuilder: (_, i) => _buildMixedItem(filtered[i]),
+          ),
+        ),
+    ];
+  }
+
+  /// 混合时间线的搜索、筛选与排序条。
+  ///
+  /// 结构刻意与星立方的 [_buildFilterBar] 保持一致：搜索框 + 筛选按钮，
+  /// 下方是记录数量与「最新在前 / 最早在前」排序切换，切换数据源时不会
+  /// 出现明显的布局跳动。科目筛选只作用于星立方考试，未来学苑成绩始终
+  /// 保留，避免用户以为筛选后数据丢失。
+  Widget _buildMixedFilterBar(int totalCount, int visibleCount) {
+    final subjects = collectExamSubjects(_exams);
+    return LayoutBuilder(
+      builder: (context, constraints) => Padding(
+        padding: centeredPadding(
+          constraints.maxWidth,
+          maxWidth: AppLayout.contentMaxWidth,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(child: _buildSearchField()),
+                const SizedBox(width: 8),
+                _buildFilterToggle(),
+              ],
+            ),
+            if (_filtersExpanded) ...[
+              const SizedBox(height: 8),
+              if (_advancedFilterCount > 0) _buildActiveFilterSummary(),
+              if (subjects.isNotEmpty) ...[
+                if (_advancedFilterCount > 0) const SizedBox(height: 8),
+                _buildSubjectFilters(subjects),
+              ],
+            ] else if (_advancedFilterCount > 0) ...[
+              const SizedBox(height: 8),
+              _buildActiveFilterSummary(),
+            ],
+            if (totalCount > 0 || visibleCount > 0) ...[
+              const SizedBox(height: 8),
+              _buildMixedResultSummary(totalCount, visibleCount),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMixedResultSummary(int totalCount, int visibleCount) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final label = _hasAnyFilters
+        ? '找到 $visibleCount / $totalCount 条记录'
+        : '共 $totalCount 条记录';
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        _buildSortToggle(),
+        if (_hasAnyFilters)
+          TextButton(
+            onPressed: _clearAllFilters,
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            child: const Text('清除'),
+          ),
+      ],
+    );
+  }
+
+  List<_MixedEntry> get _mixedEntries {
+    final entries = <_MixedEntry>[
+      for (final exam in _exams)
+        _MixedEntry(
+          title: exam.name,
+          subtitle: [
+            if (exam.subjects.isNotEmpty) exam.subjectsText,
+            if (exam.date != null) exam.date!,
+          ].join(' · '),
+          date: _parseExamDate(exam.date),
+          icon: Icons.assignment_outlined,
+          exam: exam,
+        ),
+      for (final entry in _icourseTimeline)
+        _MixedEntry(
+          title: entry.title,
+          subtitle: [
+            if (entry.subtitle.isNotEmpty) entry.subtitle,
+            if (entry.date != null) _formatShortDate(entry.date!),
+          ].join(' · '),
+          date: entry.date,
+          icon: entry.kind == IcourseTimelineKind.courseGrade
+              ? Icons.school_outlined
+              : (entry.quiz != null
+                    ? Icons.quiz_outlined
+                    : Icons.grade_outlined),
+          icourseEntry: entry,
+        ),
+    ];
+    entries.sort((a, b) {
+      final dateA = a.date;
+      final dateB = b.date;
+      if (dateA == null && dateB == null) return 0;
+      if (dateA == null) return 1;
+      if (dateB == null) return -1;
+      final byDate = dateA.compareTo(dateB);
+      return _sortOrder == ExamSortOrder.newestFirst ? -byDate : byDate;
+    });
+    return entries;
+  }
+
+  List<_MixedEntry> get _filteredMixedEntries {
+    final keyword = _searchKeyword.trim().toLowerCase();
+    final subjectKeys = _selectedSubjectKeys;
+    return _mixedEntries.where((entry) {
+      // 科目筛选只影响星立方考试；未来学苑成绩项没有统一科目字段，
+      // 始终保留，避免混合时间线出现无法解释的缺失。
+      final exam = entry.exam;
+      if (exam != null && subjectKeys.isNotEmpty) {
+        final matchesSubject = exam.subjects.any(
+          (name) => subjectKeys.contains(normalizeSubjectName(name)),
+        );
+        if (!matchesSubject) return false;
+      }
+      if (keyword.isEmpty) return true;
+      return entry.title.toLowerCase().contains(keyword) ||
+          entry.subtitle.toLowerCase().contains(keyword);
+    }).toList();
+  }
+
+  void _openMixedEntry(_MixedEntry entry) {
+    final exam = entry.exam;
+    if (exam != null) {
+      _openExam(exam);
+      return;
+    }
+    final icourseEntry = entry.icourseEntry;
+    if (icourseEntry != null) {
+      _openIcourseEntry(icourseEntry);
+    }
+  }
+
+  Widget _buildIcourseCourseItem(IcourseCourse course) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final grade = _icourseOverview?.gradeFor(course.id);
+    final gradeText = grade?.grade.trim() ?? '';
+    final meta = [
+      if (course.shortName.isNotEmpty) course.shortName,
+      if (grade?.rank != null) '排名 ${grade!.rank}',
+    ].join(' · ');
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: scheme.tertiaryContainer,
+            foregroundColor: scheme.onTertiaryContainer,
+            child: const Icon(Icons.menu_book_outlined, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  course.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.titleMedium,
+                ),
+                if (meta.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    meta,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            gradeText.isEmpty ? '—' : gradeText,
+            style: textTheme.titleMedium?.copyWith(
+              color: scheme.tertiary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineItem(IcourseTimelineEntry entry) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final date = entry.date;
+    final meta = [
+      if (entry.subtitle.isNotEmpty) entry.subtitle,
+      if (date != null) _formatShortDate(date),
+    ].join(' · ');
+    // 与考试行保持同样的头像、字号和间距；日期放在副标题里，不再在右侧
+    // 单独显示一列日期。
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: scheme.tertiaryContainer,
+            foregroundColor: scheme.onTertiaryContainer,
+            child: Icon(
+              entry.kind == IcourseTimelineKind.courseGrade
+                  ? Icons.school_outlined
+                  : (entry.quiz != null
+                        ? Icons.quiz_outlined
+                        : Icons.grade_outlined),
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.titleMedium,
+                ),
+                if (meta.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    meta,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMixedItem(_MixedEntry entry) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final terms = _highlightTerms;
+    final isIcourse = entry.icourseEntry != null;
+    // 与星立方的考试行保持相同的头像、字号和垂直间距；只把未来学苑
+    // 的图标换成 tertiary 色。日期放在副标题里，不在右侧额外占一列。
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: isIcourse
+                ? scheme.tertiaryContainer
+                : scheme.primaryContainer,
+            foregroundColor: isIcourse
+                ? scheme.onTertiaryContainer
+                : scheme.onPrimaryContainer,
+            child: Icon(entry.icon, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHighlightedText(
+                  entry.title,
+                  textTheme.titleMedium,
+                  terms,
+                ),
+                if (entry.subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  _buildHighlightedText(
+                    entry.subtitle,
+                    textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    terms,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionLabelSliver(String label) {
+    final scheme = Theme.of(context).colorScheme;
+    return SliverToBoxAdapter(
+      child: LayoutBuilder(
+        builder: (context, constraints) => Padding(
+          padding: centeredPadding(
+            constraints.maxWidth,
+            maxWidth: AppLayout.contentMaxWidth,
+            padding: const EdgeInsets.fromLTRB(28, 12, 28, 8),
+          ),
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIcourseNotice(String message) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: ContentWidth(
+        maxWidth: AppLayout.contentMaxWidth,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: scheme.errorContainer.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.info_outline,
+                size: 18,
+                color: scheme.onErrorContainer,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  message,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onErrorContainer,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: _icourseLoading
+                    ? null
+                    : () => _loadIcourse(force: true),
+                child: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIcourseAuthErrorState() {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.lock_clock_outlined,
+              size: 48,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
+            const Text('未来学苑登录已过期'),
+            const SizedBox(height: 4),
+            Text(
+              '重新打开登录页即可继续，通常不需要再输入密码。',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+            M3EFilledButton(
+              onPressed: _openIcourseBind,
+              child: const Text('重新登录未来学苑'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIcourseUnboundState() {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.auto_stories_outlined,
+              size: 48,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
+            const Text('还没有绑定未来学苑'),
+            const SizedBox(height: 4),
+            Text(
+              '绑定大泥湾未来学苑账号后，可以查看课程成绩、测验与逐题作答。',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+            M3EFilledButton(
+              onPressed: _openIcourseBind,
+              child: const Text('绑定未来学苑'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMixedEmptyState() {
+    final scheme = Theme.of(context).colorScheme;
+    final hasIcourse = widget.account.hasIcourseAccount;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.timeline_outlined,
+              size: 48,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
+            const Text('暂无成绩记录'),
+            const SizedBox(height: 4),
+            Text(
+              hasIcourse
+                  ? '下拉刷新后，星立方考试与未来学苑成绩会按时间合并显示。'
+                  : '绑定未来学苑后，可以把两边的成绩合并到一条时间线上。',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+            if (!hasIcourse) ...[
+              const SizedBox(height: 16),
+              M3EFilledButton(
+                onPressed: _openIcourseBind,
+                child: const Text('绑定未来学苑'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildErrorState(String error) {
     final scheme = Theme.of(context).colorScheme;
     return Center(
@@ -789,7 +1692,10 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 12),
               Text(error, textAlign: TextAlign.center),
               const SizedBox(height: 12),
-              M3EFilledButton(onPressed: _load, child: const Text('重试')),
+              M3EFilledButton(
+                onPressed: _retryActiveSource,
+                child: const Text('重试'),
+              ),
             ],
           ),
         ),
@@ -940,4 +1846,72 @@ class _HomeScreenState extends State<HomeScreen> {
     if (start < text.length) spans.add(TextSpan(text: text.substring(start)));
     return Text.rich(TextSpan(children: spans), style: style);
   }
+}
+
+/// 混合时间线中的一条记录：星立方考试或 icourse 成绩项。
+class _MixedEntry {
+  const _MixedEntry({
+    required this.title,
+    required this.subtitle,
+    required this.date,
+    required this.icon,
+    this.exam,
+    this.icourseEntry,
+  });
+
+  final String title;
+  final String subtitle;
+  final DateTime? date;
+  final IconData icon;
+  final Exam? exam;
+  final IcourseTimelineEntry? icourseEntry;
+}
+
+class _HomeEmptyCard extends StatelessWidget {
+  const _HomeEmptyCard({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: M3ESegmentedList(
+        itemCount: 1,
+        outerRadius: 24,
+        padding: const EdgeInsets.all(18),
+        itemBuilder: (_, __) => Row(
+          children: [
+            Icon(
+              Icons.inbox_outlined,
+              size: 20,
+              color: scheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 10),
+            Text(text, style: TextStyle(color: scheme.onSurfaceVariant)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 解析星立方考试日期（`2026/10/09`）。
+DateTime? _parseExamDate(String? text) {
+  final value = (text ?? '').trim();
+  if (value.isEmpty) return null;
+  final match = RegExp(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})').firstMatch(value);
+  if (match == null) return null;
+  final year = int.tryParse(match.group(1)!);
+  final month = int.tryParse(match.group(2)!);
+  final day = int.tryParse(match.group(3)!);
+  if (year == null || month == null || day == null) return null;
+  return DateTime(year, month, day);
+}
+
+String _formatShortDate(DateTime date) {
+  final local = date.toLocal();
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${local.year}/${two(local.month)}/${two(local.day)}';
 }

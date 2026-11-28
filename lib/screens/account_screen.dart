@@ -3,13 +3,17 @@ import 'package:material_ui/material_ui.dart';
 import 'package:m3e_core/m3e_core.dart';
 
 import '../models/models.dart';
+import '../services/icourse_client.dart';
+import '../services/icourse_telemetry.dart';
 import '../services/raw_capture.dart';
 import '../services/xlf_client.dart';
 import '../theme/responsive.dart';
 import '../widgets/app_top_bar.dart';
+import '../widgets/beta_notice.dart';
 import 'about_screen.dart';
 import 'account_management_screen.dart';
 import 'enhancement_settings_screen.dart';
+import 'icourse_web_login_screen.dart';
 import 'login_history_screen.dart';
 import 'login_screen.dart';
 import 'privacy_settings_screen.dart';
@@ -23,6 +27,7 @@ class AccountScreen extends StatelessWidget {
     required this.loginResult,
     required this.onSwitchAccount,
     required this.onDefaultChanged,
+    this.onAccountUpdated,
   });
 
   final Account account;
@@ -30,16 +35,33 @@ class AccountScreen extends StatelessWidget {
   final void Function(Account, LoginResult) onSwitchAccount;
   final void Function(String username) onDefaultChanged;
 
+  /// 绑定 / 解绑 icourse 后把最新账号同步给主界面。
+  final void Function(Account account)? onAccountUpdated;
+
   Future<void> _openManagement(BuildContext context) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => AccountManagementScreen(
           onSwitchAccount: onSwitchAccount,
           onDefaultChanged: onDefaultChanged,
+          onAccountUpdated: onAccountUpdated,
+          currentUsername: account.username,
         ),
         settings: const RouteSettings(name: 'Account Management'),
       ),
     );
+  }
+
+  Future<void> _openIcourse(BuildContext context) async {
+    IcourseTelemetry.bindScreenOpened('account');
+    final updated = await Navigator.of(context).push<Account>(
+      MaterialPageRoute(
+        builder: (_) => IcourseWebLoginScreen(account: account),
+        settings: const RouteSettings(name: 'Icourse Login'),
+      ),
+    );
+    if (updated == null) return;
+    onAccountUpdated?.call(updated);
   }
 
   Future<void> _openAbout(BuildContext context) async {
@@ -89,6 +111,7 @@ class AccountScreen extends StatelessWidget {
 
   Future<void> _logout(BuildContext context) async {
     await XlfClient.instance.clearSession();
+    IcourseClient.instance.clearSession();
     // 原始响应可能包含上一账号的成绩与个人信息，退出时立即清空。
     RawCaptureStore.instance.clear();
     if (!context.mounted) return;
@@ -127,6 +150,13 @@ class AccountScreen extends StatelessWidget {
           Divider(height: 1, color: scheme.outlineVariant),
           const SizedBox(height: 6),
           _infoRow(context, '用户 ID', userId),
+          _infoRow(
+            context,
+            '未来学苑',
+            account.icourseFullName?.trim().isNotEmpty == true
+                ? account.icourseFullName!
+                : (account.hasIcourseAccount ? account.icourseUsername : '未绑定'),
+          ),
           if (account.lastLoginAt != null)
             _infoRow(
               context,
@@ -137,6 +167,52 @@ class AccountScreen extends StatelessWidget {
             ),
         ],
       ),
+    );
+
+    // 一个学生档案同时持有星立方与 icourse 两套账号，这里统一展示连接状态。
+    final sourceSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionLabel('数据源'),
+        const BetaNoticeBanner(message: '未来学苑为 Beta 功能，课程成绩与逐题回顾可能调整。'),
+        const SizedBox(height: 10),
+        M3ESegmentedList(
+          itemCount: 2,
+          outerRadius: 24,
+          padding: EdgeInsets.zero,
+          onTap: (i) {
+            if (i == 1) _openIcourse(context);
+          },
+          itemBuilder: (_, i) => i == 0
+              ? _settingsTile(
+                  scheme,
+                  icon: Icons.school_outlined,
+                  title: '星立方',
+                  subtitle: account.username,
+                  trailing: const _SourceStatus(label: '已连接', ok: true),
+                )
+              : _settingsTile(
+                  scheme,
+                  icon: Icons.auto_stories_outlined,
+                  title: '未来学苑',
+                  beta: true,
+                  iconBackground: scheme.tertiaryContainer,
+                  iconForeground: scheme.onTertiaryContainer,
+                  subtitle: account.hasIcourseAccount
+                      ? '${account.icourseUsername}'
+                            '${account.icourseConnected ? '' : ' · 需重新登录'}'
+                      : '未绑定 · 点击登录',
+                  trailing: _SourceStatus(
+                    label: account.hasIcourseAccount
+                        ? (account.icourseConnected ? '已连接' : '未连接')
+                        : '未绑定',
+                    ok: account.hasIcourseAccount && account.icourseConnected,
+                    activeBackground: scheme.tertiaryContainer,
+                    activeForeground: scheme.onTertiaryContainer,
+                  ),
+                ),
+        ),
+      ],
     );
 
     final accountSection = Column(
@@ -246,6 +322,8 @@ class AccountScreen extends StatelessWidget {
     final settings = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        sourceSection,
+        const SizedBox(height: 24),
         accountSection,
         const SizedBox(height: 24),
         appSection,
@@ -307,33 +385,52 @@ class AccountScreen extends StatelessWidget {
     String? subtitle,
     bool destructive = false,
     bool showChevron = true,
+    bool beta = false,
+    Widget? trailing,
+    Color? iconBackground,
+    Color? iconForeground,
   }) {
+    final background =
+        iconBackground ??
+        (destructive ? scheme.errorContainer : scheme.secondaryContainer);
+    final foreground =
+        iconForeground ??
+        (destructive ? scheme.onErrorContainer : scheme.onSecondaryContainer);
     return M3EListItem(
       leading: Container(
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: destructive
-              ? scheme.errorContainer
-              : scheme.secondaryContainer,
-        ),
-        child: Icon(
-          icon,
-          size: 20,
-          color: destructive
-              ? scheme.onErrorContainer
-              : scheme.onSecondaryContainer,
-        ),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: background),
+        child: Icon(icon, size: 20, color: foreground),
       ),
-      headline: Text(
-        title,
-        style: destructive ? TextStyle(color: scheme.error) : null,
-      ),
+      headline: beta
+          ? Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    title,
+                    overflow: TextOverflow.ellipsis,
+                    style: destructive ? TextStyle(color: scheme.error) : null,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const BetaTag(compact: true),
+              ],
+            )
+          : Text(
+              title,
+              style: destructive ? TextStyle(color: scheme.error) : null,
+            ),
       supportingText: subtitle == null ? null : Text(subtitle),
-      trailing: showChevron
-          ? Icon(Icons.chevron_right, size: 20, color: scheme.onSurfaceVariant)
-          : null,
+      trailing:
+          trailing ??
+          (showChevron
+              ? Icon(
+                  Icons.chevron_right,
+                  size: 20,
+                  color: scheme.onSurfaceVariant,
+                )
+              : null),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       leadingSpacing: 16,
     );
@@ -458,6 +555,47 @@ class _SectionLabel extends StatelessWidget {
         label,
         style: Theme.of(context).textTheme.labelLarge?.copyWith(
           color: scheme.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+/// 数据源连接状态标签。
+class _SourceStatus extends StatelessWidget {
+  const _SourceStatus({
+    required this.label,
+    required this.ok,
+    this.activeBackground,
+    this.activeForeground,
+  });
+
+  final String label;
+  final bool ok;
+  final Color? activeBackground;
+  final Color? activeForeground;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final background = ok
+        ? (activeBackground ?? scheme.secondaryContainer)
+        : scheme.surfaceContainerHighest;
+    final foreground = ok
+        ? (activeForeground ?? scheme.onSecondaryContainer)
+        : scheme.onSurfaceVariant;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: textTheme.labelSmall?.copyWith(
+          color: foreground,
           fontWeight: FontWeight.w600,
         ),
       ),

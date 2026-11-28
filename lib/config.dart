@@ -13,6 +13,32 @@ const String kBaseUrl = String.fromEnvironment(
 /// 登录表单 AES 加密密钥（与网页端 CryptoJS 一致）。
 const String kAesKey = 'xlfykj@20231026@';
 
+/// icourse（大泥湾未来学苑 / Moodle）基础地址。
+///
+/// 该站点是标准 Moodle，成绩数据通过官方移动端 Web Service 获取，
+/// 不使用 HTML 解析。构建时可覆盖：
+/// `flutter build apk --dart-define=ICOURSE_BASE_URL=https://icourse.example.com`
+const String kIcourseBaseUrl = String.fromEnvironment(
+  'ICOURSE_BASE_URL',
+  defaultValue: 'https://icourse.pkuschool.edu.cn',
+);
+
+/// Moodle Web Service 入口（JSON 格式）。
+const String kIcourseRestUrl = '$kIcourseBaseUrl/webservice/rest/server.php';
+
+/// Moodle 官方移动端服务名。
+const String kIcourseService = 'moodle_mobile_app';
+
+/// Moodle 移动端启动页：WebView 登录后用它换取 `wstoken`。
+///
+/// 未登录时 Moodle 会先跳转到登录页，登录成功后回到此页并重定向到
+/// `myxlf://token=...`，应用在 WebView 中拦截该地址即可拿到 token。
+const String kIcourseLaunchUrl =
+    '$kIcourseBaseUrl/admin/tool/mobile/launch.php';
+
+/// WebView 登录成功后使用的自定义 scheme（只用于应用内拦截，不需要在系统注册）。
+const String kIcourseUrlScheme = 'myxlf';
+
 /// 学生身份类型值。
 const String kStudentAuthType = '100030';
 

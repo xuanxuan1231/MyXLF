@@ -29,6 +29,13 @@ class Account {
     this.classId,
     this.isDefault = false,
     this.lastLoginAt,
+    this.icourseUsername = '',
+    this.icourseToken = '',
+    this.icourseUserId,
+    this.icourseFullName,
+    this.icourseSiteUrl,
+    this.icourseUserPictureUrl,
+    this.icourseConnected = false,
   });
 
   /// 登录名（学生姓名或手机号）。
@@ -61,6 +68,42 @@ class Account {
   /// 最近一次登录时间（毫秒时间戳）。
   int? lastLoginAt;
 
+  /// icourse 登录名。
+  ///
+  /// 一个学生档案可以同时持有星立方与 icourse 两套账号；icourse 可选，
+  /// 未绑定时为空字符串。
+  final String icourseUsername;
+
+  /// icourse Web Service token（仅保存在内存中）。
+  ///
+  /// 由 `AccountStore` 写入系统安全存储，键名为
+  /// `icourse-token:<星立方用户名>`，不会通过 [toJson] 持久化。
+  ///
+  /// 与密码不同，token 可以直接复用；只要服务端没有撤销，应用启动后
+  /// 无需再次登录，这也是 Moodle App 的做法。
+  final String icourseToken;
+
+  /// icourse 用户 ID。
+  final String? icourseUserId;
+
+  /// icourse 显示的姓名。
+  final String? icourseFullName;
+
+  /// icourse 站点地址。
+  final String? icourseSiteUrl;
+
+  /// icourse 头像地址。
+  final String? icourseUserPictureUrl;
+
+  /// 最近一次 icourse 登录是否成功。
+  bool icourseConnected;
+
+  /// 是否已绑定 icourse 账号。
+  bool get hasIcourseAccount => icourseUsername.trim().isNotEmpty;
+
+  /// 是否可以直接用已保存的 token 恢复 icourse 会话。
+  bool get canRestoreIcourse => icourseToken.trim().isNotEmpty;
+
   Account copyWith({
     String? username,
     String? password,
@@ -71,6 +114,15 @@ class Account {
     String? classId,
     bool? isDefault,
     int? lastLoginAt,
+    String? icourseUsername,
+    String? icourseToken,
+    String? icourseUserId,
+    String? icourseFullName,
+    String? icourseSiteUrl,
+    String? icourseUserPictureUrl,
+    bool? icourseConnected,
+    bool clearIcourse = false,
+    bool clearIcourseProfile = false,
   }) {
     return Account(
       username: username ?? this.username,
@@ -82,10 +134,29 @@ class Account {
       classId: classId ?? this.classId,
       isDefault: isDefault ?? this.isDefault,
       lastLoginAt: lastLoginAt ?? this.lastLoginAt,
+      icourseUsername: clearIcourse
+          ? ''
+          : (icourseUsername ?? this.icourseUsername),
+      icourseToken: clearIcourse ? '' : (icourseToken ?? this.icourseToken),
+      icourseUserId: clearIcourse || clearIcourseProfile
+          ? null
+          : (icourseUserId ?? this.icourseUserId),
+      icourseFullName: clearIcourse || clearIcourseProfile
+          ? null
+          : (icourseFullName ?? this.icourseFullName),
+      icourseSiteUrl: clearIcourse || clearIcourseProfile
+          ? null
+          : (icourseSiteUrl ?? this.icourseSiteUrl),
+      icourseUserPictureUrl: clearIcourse || clearIcourseProfile
+          ? null
+          : (icourseUserPictureUrl ?? this.icourseUserPictureUrl),
+      icourseConnected: clearIcourse
+          ? false
+          : (icourseConnected ?? this.icourseConnected),
     );
   }
 
-  /// 序列化账号资料（不含密码，密码单独存入系统安全存储）。
+  /// 序列化账号资料（不含密码 / token，敏感信息单独存入系统安全存储）。
   Map<String, dynamic> toJson() => {
     'username': username,
     'schoolName': schoolName,
@@ -95,6 +166,12 @@ class Account {
     'classId': classId,
     'isDefault': isDefault,
     'lastLoginAt': lastLoginAt,
+    'icourseUsername': icourseUsername,
+    'icourseUserId': icourseUserId,
+    'icourseFullName': icourseFullName,
+    'icourseSiteUrl': icourseSiteUrl,
+    'icourseUserPictureUrl': icourseUserPictureUrl,
+    'icourseConnected': icourseConnected,
   };
 
   factory Account.fromJson(Map<String, dynamic> json) => Account(
@@ -109,6 +186,12 @@ class Account {
     classId: json['classId'] as String?,
     isDefault: json['isDefault'] as bool? ?? false,
     lastLoginAt: json['lastLoginAt'] as int?,
+    icourseUsername: json['icourseUsername'] as String? ?? '',
+    icourseUserId: json['icourseUserId'] as String?,
+    icourseFullName: json['icourseFullName'] as String?,
+    icourseSiteUrl: json['icourseSiteUrl'] as String?,
+    icourseUserPictureUrl: json['icourseUserPictureUrl'] as String?,
+    icourseConnected: json['icourseConnected'] as bool? ?? false,
   );
 }
 
