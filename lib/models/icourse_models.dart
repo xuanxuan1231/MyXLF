@@ -118,7 +118,7 @@ class IcourseCourseGrade {
   factory IcourseCourseGrade.fromJson(Map<String, dynamic> json) {
     return IcourseCourseGrade(
       courseId: _asInt(json['courseid']),
-      grade: _decodeEntities(_asString(json['grade'])),
+      grade: _normalizeScoreText(_asString(json['grade'])),
       rawGrade: _asDoubleOrNull(json['rawgrade']),
       rank: _asIntOrNull(json['rank']),
     );
@@ -211,15 +211,17 @@ class IcourseGradeItem {
       gradeRaw: _asDoubleOrNull(json['graderaw']),
       gradeMin: _asDoubleOrNull(json['grademin']),
       gradeMax: _asDoubleOrNull(json['grademax']),
-      gradeFormatted: _decodeEntities(_asString(json['gradeformatted'])),
-      percentageFormatted: _decodeEntities(
+      gradeFormatted: _normalizeScoreText(_asString(json['gradeformatted'])),
+      percentageFormatted: _normalizeScoreText(
         _asString(json['percentageformatted']),
       ),
-      weightFormatted: _decodeEntities(_asString(json['weightformatted'])),
-      rangeFormatted: _decodeEntities(_asString(json['rangeformatted'])),
+      weightFormatted: _normalizeScoreText(_asString(json['weightformatted'])),
+      rangeFormatted: _normalizeScoreText(_asString(json['rangeformatted'])),
       rank: _asIntOrNull(json['rank']),
       numUsers: _asIntOrNull(json['numusers']),
-      averageFormatted: _decodeEntities(_asString(json['averageformatted'])),
+      averageFormatted: _normalizeScoreText(
+        _asString(json['averageformatted']),
+      ),
       feedback: _htmlToText(_asString(json['feedback'])),
       gradedAt: _asDateTime(json['gradedategraded']),
       submittedAt: _asDateTime(json['gradedatesubmitted']),
@@ -1351,6 +1353,17 @@ String _decodeEntities(String text) {
     value = decoded;
   }
   return value;
+}
+
+/// 成绩文本中的数字去掉无意义的末尾 0：`65.00` → `65`，
+/// `71.20` → `71.2`，`0.00–100.00` → `0–100`。
+String _normalizeScoreText(String text) {
+  return _decodeEntities(text).replaceAllMapped(RegExp(r'(\d+)\.(\d+)'), (
+    match,
+  ) {
+    final fraction = match.group(2)!.replaceFirst(RegExp(r'0+$'), '');
+    return fraction.isEmpty ? match.group(1)! : '${match.group(1)}.$fraction';
+  });
 }
 
 String _normalizeText(String text) {

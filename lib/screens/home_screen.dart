@@ -547,13 +547,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _HomeSource.icourse => '未来学苑课程成绩',
       _HomeSource.mixed => '成绩时间线',
     };
-    final subtitle = _source == _HomeSource.icourse
-        ? [
-            if ((_icourseOverview?.profile.fullName ?? '').isNotEmpty)
-              _icourseOverview!.profile.fullName,
-            if (schoolName.isNotEmpty) schoolName,
-          ].join(' · ')
-        : schoolName;
+    // 未来学苑课程成绩页顶部只保留标题，副标题留空；混合时间线仍显示学校。
+    final subtitle = _source == _HomeSource.icourse ? '' : schoolName;
     return Scaffold(
       // 整页只保留一个滚动区域：顶栏、搜索筛选和考试列表一起滚动，
       // 列表本身不再套独立的滚动视图。
@@ -1411,12 +1406,18 @@ class _HomeScreenState extends State<HomeScreen> {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final date = entry.date;
+    final meta = [
+      if (entry.subtitle.isNotEmpty) entry.subtitle,
+      if (date != null) _formatShortDate(date),
+    ].join(' · ');
+    // 与考试行保持同样的头像、字号和间距；日期放在副标题里，不再在右侧
+    // 单独显示一列日期。
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
           CircleAvatar(
-            radius: 20,
+            radius: 22,
             backgroundColor: scheme.tertiaryContainer,
             foregroundColor: scheme.onTertiaryContainer,
             child: Icon(
@@ -1425,7 +1426,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   : (entry.quiz != null
                         ? Icons.quiz_outlined
                         : Icons.grade_outlined),
-              size: 20,
+              size: 22,
             ),
           ),
           const SizedBox(width: 12),
@@ -1437,17 +1438,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   entry.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: textTheme.titleMedium,
                 ),
-                if (entry.subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 2),
+                if (meta.isNotEmpty) ...[
+                  const SizedBox(height: 4),
                   Text(
-                    entry.subtitle,
+                    meta,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: textTheme.bodySmall?.copyWith(
+                    style: textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
@@ -1455,14 +1454,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          if (date != null)
-            Text(
-              _formatShortDate(date),
-              style: textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          Icon(Icons.chevron_right, size: 20, color: scheme.onSurfaceVariant),
+          Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
         ],
       ),
     );

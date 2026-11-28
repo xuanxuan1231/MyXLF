@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../widgets/math_text.dart';
 import '../theme/responsive.dart';
 import '../widgets/beta_notice.dart';
+import '../widgets/icourse_score_style.dart';
 import '../widgets/report_page_scaffold.dart';
 
 /// icourse 测验作答回顾：逐题内容、我的作答、正确答案与反馈。
@@ -216,7 +217,7 @@ class _IcourseAttemptReviewScreenState
                       if (attempt.sumGrades != null) ...[
                         const SizedBox(width: 12),
                         Text(
-                          _fmtScore(attempt.sumGrades),
+                          formatScoreValue(attempt.sumGrades),
                           style: TextStyle(
                             color: Theme.of(
                               context,
@@ -306,49 +307,55 @@ class _IcourseAttemptReviewScreenState
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final date = _attempt.finishedAt ?? _attempt.startedAt;
-    final grade = _formatGrade(review.grade, widget.quiz.grade);
+    final scoreText = _scoreValueOf(review.grade);
+    final numeric = double.tryParse(review.grade.trim());
+    final maxGrade = widget.quiz.grade;
+    final rate = numeric != null && maxGrade > 0 ? numeric / maxGrade : null;
     final questions = review.questions;
     final fullCount = questions.where((q) => q.isFullMark).length;
+    final meta = <String>[
+      '本次成绩',
+      if (rate != null) '得分率 ${_pct(rate)}',
+      if (date != null) _formatDateTime(date),
+    ].join(' · ');
 
+    // 与课程总评卡一致：大号分数 + 「/ 满分」，指标行放在下方。
+    // 作答回顾的卡片更窄，字号略小，但字重与字体轴保持一致。
     return M3ESegmentedList(
       itemCount: 1,
       outerRadius: 24,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
       itemBuilder: (_, __) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '本次成绩',
-                      style: textTheme.labelMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      grade,
-                      style: textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: scheme.tertiary,
-                      ),
-                    ),
-                  ],
+              Flexible(
+                child: Text(
+                  scoreText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: icourseHeroScoreStyle(scheme, fontSize: 42),
                 ),
               ),
-              if (date != null)
+              if (maxGrade > 0 && numeric != null)
                 Text(
-                  _formatDateTime(date),
-                  style: textTheme.bodySmall?.copyWith(
+                  ' / ${formatScoreValue(maxGrade)}',
+                  style: textTheme.titleMedium?.copyWith(
                     color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
             ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            meta,
+            style: textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
           ),
           if (questions.isNotEmpty) ...[
             const SizedBox(height: 14),
@@ -1208,16 +1215,22 @@ class _ScoreText extends StatelessWidget {
       textBaseline: TextBaseline.alphabetic,
       children: [
         Text(
-          _fmtScore(question.displayMark),
-          style: (large ? textTheme.headlineMedium : textTheme.titleMedium)
-              ?.copyWith(
-                color: status.color,
-                fontWeight: FontWeight.w800,
-                height: 1,
-              ),
+          formatScoreValue(question.displayMark),
+          style: large
+              ? icourseScoreNumberStyle(
+                  scheme,
+                  textTheme,
+                  fontSize: 28,
+                  color: status.color,
+                )
+              : textTheme.titleMedium?.copyWith(
+                  color: status.color,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
+                ),
         ),
         Text(
-          '/${_fmtScore(question.maxMark)}',
+          '/${formatScoreValue(question.maxMark)}',
           style: (large ? textTheme.bodyMedium : textTheme.labelSmall)
               ?.copyWith(color: scheme.onSurfaceVariant),
         ),
@@ -1341,26 +1354,20 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
-String _fmtScore(double? value) {
-  if (value == null) return '—';
-  if (value == value.roundToDouble()) return value.toInt().toString();
-  return value
-      .toStringAsFixed(2)
-      .replaceFirst(RegExp(r'0+$'), '')
-      .replaceFirst(RegExp(r'\.$'), '');
-}
-
-/// Moodle 的 `grade` 字段是原始浮点数（如 5.759255...），这里格式化成
-/// 「5.76 / 10」这种可读形式。
-String _formatGrade(String raw, double maxGrade) {
+String _scoreValueOf(String raw) {
   final text = raw.trim();
   if (text.isEmpty) return '—';
   if (text.toLowerCase() == 'notyetgraded') return '未评分';
   final value = double.tryParse(text);
-  if (value == null) return text;
-  final formatted = _fmtScore(value);
-  if (maxGrade > 0) return '$formatted / ${_fmtScore(maxGrade)}';
-  return formatted;
+  return value == null ? text : formatScoreValue(value);
+}
+
+String _pct(double rate) {
+  final value = rate * 100;
+  final text = value == value.roundToDouble()
+      ? value.toInt().toString()
+      : value.toStringAsFixed(1);
+  return '$text%';
 }
 
 String _formatDateTime(DateTime date) {

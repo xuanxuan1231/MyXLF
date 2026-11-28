@@ -7,6 +7,7 @@ import '../services/icourse_client.dart';
 import '../services/icourse_telemetry.dart';
 import '../theme/responsive.dart';
 import '../widgets/beta_notice.dart';
+import '../widgets/icourse_score_style.dart';
 import '../widgets/report_page_scaffold.dart';
 import 'icourse_attempt_review_screen.dart';
 
@@ -81,10 +82,8 @@ class _IcourseCourseScreenState extends State<IcourseCourseScreen> {
   Widget build(BuildContext context) {
     return ReportPageScaffold(
       title: widget.course.title,
-      subtitle: [
-        if (widget.course.shortName.isNotEmpty) widget.course.shortName,
-        '未来学苑 (Beta)',
-      ].join(' · '),
+      // 标题已经是课程名，副标题不再重复；只保留 Beta 标识。
+      subtitle: '未来学苑 (Beta)',
       actions: [
         if (context.isDesktopPlatform)
           IconButton(
@@ -186,7 +185,7 @@ class _IcourseCourseScreenState extends State<IcourseCourseScreen> {
                         gradeText,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: _heroScoreStyle(scheme),
+                        style: icourseHeroScoreStyle(scheme),
                       ),
                     ),
                     if (fullScore != null && fullScore > 0)
@@ -747,7 +746,10 @@ class _ScoreText extends StatelessWidget {
       children: [
         Text(
           score,
-          style: _scoreNumberStyle(scheme, textTheme).copyWith(color: color),
+          style: icourseScoreNumberStyle(
+            scheme,
+            textTheme,
+          ).copyWith(color: color),
         ),
         if (fullScore != null && fullScore! > 0)
           Text(
@@ -759,35 +761,6 @@ class _ScoreText extends StatelessWidget {
       ],
     );
   }
-}
-
-/// 与星立方「成绩分析」Hero 使用相同的字号与字重。
-TextStyle _heroScoreStyle(ColorScheme scheme) {
-  return const TextStyle().copyWith(
-    fontSize: 48,
-    height: 1,
-    fontWeight: FontWeight.w800,
-    color: scheme.tertiary,
-    fontVariations: const [
-      FontVariation('wght', 800),
-      FontVariation('ROND', 100),
-      FontVariation('opsz', 48),
-    ],
-  );
-}
-
-/// 成绩项右侧分数样式：与星立方科目行一致。
-TextStyle _scoreNumberStyle(ColorScheme scheme, TextTheme textTheme) {
-  return (textTheme.headlineLarge ?? const TextStyle()).copyWith(
-    fontSize: 34,
-    fontWeight: FontWeight.w800,
-    color: scheme.tertiary,
-    fontVariations: const [
-      FontVariation('wght', 800),
-      FontVariation('ROND', 100),
-      FontVariation('opsz', 34),
-    ],
-  );
 }
 
 String _gradeText(IcourseGradeItem item) {
@@ -815,11 +788,7 @@ String _attemptSummary(IcourseQuizAttempt attempt) {
   return parts.join(' · ');
 }
 
-String _formatScore(double? value) {
-  if (value == null) return '—';
-  if (value == value.roundToDouble()) return value.toInt().toString();
-  return value.toStringAsFixed(1);
-}
+String _formatScore(double? value) => formatScoreValue(value);
 
 String _formatDate(DateTime date) {
   final local = date.toLocal();
